@@ -8,20 +8,21 @@
 #![feature(try_from)]
 #![feature(nll)]
 #![feature(inclusive_range_syntax)]
+#![feature(try_trait)]
 #![feature(type_ascription)]
 #![feature(ptr_internals)]
+#![feature(use_nested_groups)]
 
-extern crate rlibc;
-extern crate volatile;
-extern crate spin;
-extern crate x86_64;
-extern crate array_init; // Used as a workaround until const-generics arrives
-
+extern crate array_init;
 #[macro_use]
 extern crate bitflags;
-
 #[macro_use]
 extern crate lazy_static;
+extern crate rlibc;
+extern crate spin;
+extern crate volatile;
+extern crate x86_64;
+// Used as a workaround until const-generics arrives
 
 use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
 use drivers::keyboard::keymap;
@@ -64,24 +65,25 @@ pub extern fn kmain() -> ! {
         Err(error) => error!("ps2c: {:?}", error),
     }
 
-    let keyboard_device = controller.device(ps2::DevicePort::Keyboard);
-    let mut keyboard = Ps2Keyboard::new(keyboard_device);
-    if let Ok(_) = keyboard.enable() {
-        info!("kbd: successfully enabled");
-        loop {
-            if let Ok(Some(event)) = keyboard.read_event() {
-                if event.event_type != KeyEventType::Break {
-                    if event.keycode == keymap::codes::BACKSPACE {
-                        // Ignore error
-                        let _ = terminal::STDOUT.write().backspace();
-                    } else if let Some(character) = event.char {
-                        print!("{}", character)
+    if let Some(keyboard) = controller.keyboard() {
+        let mut keyboard = Ps2Keyboard::new(keyboard);
+
+        if let Ok(_) = keyboard.enable() {
+            println!("kbd: successfully enabled");
+            loop {
+                if let Ok(Some(event)) = keyboard.read_event() {
+                    if event.event_type != KeyEventType::Break {
+                        if let Some(char) = event.char {
+                            print!("{}", char);
+                        }
                     }
                 }
             }
+        } else {
+            println!("kbd: enable unsuccessful");
         }
     } else {
-        error!("kbd: enable unsuccessful");
+        println!("kbd: not available");
     }
 
     halt()

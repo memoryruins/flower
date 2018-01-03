@@ -2,6 +2,7 @@
 
 /// A macro to implement [FromDiscriminator] on an enum with explicit discriminators.
 /// Doesn't support generics or comments, but does support attributes, etc
+#[allow(unused_macros)] // TODO for other things like terminal
 macro_rules! from_discriminator {
     {
         $(#[$attr:meta])*

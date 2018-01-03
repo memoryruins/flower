@@ -31,5 +31,8 @@ Much thanks to:
    - toor,
    - rep nop,
    - and nyrox;
+ - the people over on the [Rust gitter](https://gitter.im/rust-lang/rust), such as
+   - tanriol,
+   - and vorner;
  - the [OsDev wiki](http://wiki.osdev.org)
  - [Wikipedia](https://wikipedia.org) (of course!)
