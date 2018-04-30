@@ -1,13 +1,12 @@
-use volatile::Volatile;
+use color::{Color, ColorPair};
 use core::{cmp, fmt};
 use core::convert::TryFrom;
 use core::ptr::Unique;
 use core::result::Result;
 use spin::RwLock;
-
-use util::{self, FromDiscriminator};
-use color::{Color, ColorPair};
 use terminal::*;
+use util::{self, FromDiscriminator};
+use volatile::Volatile;
 
 pub static WRITER: RwLock<VgaWriter> = RwLock::new(VgaWriter::new());
 
@@ -42,7 +41,6 @@ impl VgaWriter {
 }
 
 impl TerminalOutput<()> for VgaWriter {
-
     fn resolution(&self) -> Resolution {
         RESOLUTION
     }
@@ -121,8 +119,8 @@ impl TerminalOutput<()> for VgaWriter {
             point.y,
             VgaChar::new(
                 VgaColor::from(char.color),
-                char.character as u8
-            )
+                char.character as u8,
+            ),
         );
         Ok(())
     }
@@ -178,7 +176,7 @@ impl VgaBuffer {
     pub fn clear_row(&mut self, y: usize, color: Color) {
         let blank = VgaChar::new(
             VgaColor::new(Color::Black, color),
-            b' '
+            b' ',
         );
 
         for x in 0..RESOLUTION.x {

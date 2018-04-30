@@ -1,31 +1,41 @@
-//! # PS/2 Driver
-//!
-//! The PS/2 driver provides interface into the PS/2 controller, allowing access to devices using
-//! this protocol. The controller is accessed through the static `CONTROLLER`.
-//!
-//! The [Controller] handles all interface with the controller for devices.
-//! For it to be initialized, `initialize` must be called on it. This sets up all attached devices.
-//!
-//! The [Device] handles interface to a single PS/2 device. Its state can be checked and toggled
-//! through `enable` and `disable`.
-//!
-//! Devices can be obtained from the controller through `device(DevicePort)` or functions for keyboard
-//! and mouse
-
-// TODO document
-// TODO no-run examples & rust highlight
-
-mod io;
-mod device;
-
-// TODO check is right
-pub use self::device::*;
-
-use core::{option, convert::From};
+use core::{convert::From, option};
+use self::device::{DevicePort, InternalDevice, Keyboard, Mouse, PortType};
+use self::io::command;
 use spin::Mutex;
-use self::io::{STATUS_COMMAND_PORT, DEVICE_DATA_PORT, command::controller::*};
 
-pub static CONTROLLER: Mutex<Controller> = Mutex::new(Controller::new());
+pub mod io;
+pub mod device;
+
+pub static PORTS: PortHolder = PortHolder::new();
+
+/// Represents an error returned by PS/2
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Ps2Error {
+    RetriesExceeded,
+    DeviceUnavailable,
+    DeviceDisabled,
+    UnexpectedResponse(u8),
+    /// When a response was expected but not received
+    ExpectedResponse,
+    /// Returned when the write status bit is set, meaning write should be retried until available
+    WriteUnavailable,
+    ControllerTestFailed,
+    /// Returned when an error occurs during initialization
+    InitializationError(InitializationError),
+    WrongDeviceType,
+}
+
+/// Represents an error during PS/2 initialization
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum InitializationError {
+    ControllerTestFailed(u8),
+}
+
+impl From<option::NoneError> for Ps2Error {
+    fn from(_: option::NoneError) -> Self {
+        Ps2Error::ExpectedResponse
+    }
+}
 
 bitflags! {
     pub struct ConfigFlags: u8 {
@@ -42,231 +52,65 @@ bitflags! {
     }
 }
 
-/// Represents an error returned by PS/2
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum Ps2Error {
-    // TODO configure retries?
-    RetriesExceeded,
-    DeviceUnavailable,
-    DeviceDisabled, // TODO how to know
-    UnexpectedResponse(u8),
-    /// When a response was expected but not received
-    ExpectedResponse,
+// TODO: We need to properly mark ports as dirty at intervals or when unexpected data is received (or not)
+pub struct Controller<'a> {
+    devices: (Option<InternalDevice<'a>>, Option<InternalDevice<'a>>),
 }
 
-impl From<option::NoneError> for Ps2Error {
-    fn from(_: option::NoneError) -> Self {
-        Ps2Error::ExpectedResponse
-    }
-}
-
-/// Represents the PS2 master controller
-pub struct Controller {
-    devices: DevicesInner,
-}
-
-/// Represents the inner devices stored by the controller
-struct DevicesInner {
-    keyboard: Option<Keyboard>, // TODO should make sure that if device is in it is not none
-    mouse: Option<Mouse>,
-}
-
-impl DevicesInner {
-    const fn new() -> Self {
-        DevicesInner {
-            keyboard: None,
-            mouse: None,
-        }
-    }
-
-    /// Maps the closure onto the keyboard and then the device, returning the returns of the closure
-    /// mapped onto the keyboard first and then the closure mapped onto the second, or none if the
-    /// device is not present.
-    fn map<'a, F, R>(&mut self, f: F) -> (Option<R>, Option<R>)
-        where F: Fn(&(Device + 'a)) -> R
-    {
-        (
-            self.keyboard.as_ref().map(|d| f(d)),
-            self.mouse.as_ref().map(|d| f(d))
-        )
-    }
-
-    /// Maps the closure onto the keyboard and then the device (mutable), returning the returns of
-    /// the closure mapped onto the keyboard first and then the closure mapped onto the second, or
-    /// none if the device is not present
-    // TODO much clearer in doc
-    fn map_mut<'a, F, R>(&mut self, mut f: F) -> (Option<R>, Option<R>)
-        where F: FnMut(&mut (Device + 'a)) -> R
-    {
-        (
-            self.keyboard.as_mut().map(|d| f(d)),
-            self.mouse.as_mut().map(|d| f(d))
-        )
-    }
-
-
-
-}
-
-impl Controller {
-
-    /// Creates a new PS2 controller
-    const fn new() -> Self {
+impl<'a> Controller<'a> {
+    pub fn new() -> Self {
         Controller {
-            devices: DevicesInner::new(),
+            devices: (None, None),
         }
     }
 
-    // TODO merge with `new`?
-    /// Initializes this PS2 controller
-    ///
-    /// # Shortcircuiting
-    ///
-    /// Shortcircuits and returns the first error from device reset.
-    pub fn initialize(&mut self) -> Result<(), Ps2Error> {
+    pub fn setup(&mut self) -> Result<(), Ps2Error> {
+        // TODO: Check the PS/2 controller is present
+
         info!("ps2c: initializing");
 
-        // TODO ? v v v
-        self.devices.map(|d| d.disable());
-        println!("ps2c: disabled devices");
+        // Reset the ports, we haven't tested if they exist yet
+        PORTS.set((None, None));
 
+        // Call the disable command for both ports
+        PortType::Port1.disable();
+        PortType::Port2.disable();
+
+        debug!("ps2c: disabled devices");
+
+        // Flush output buffer to make sure there's nothing queued up from the devices
         io::flush_output();
 
-        self.initialize_config()?;
+        let config = self.initialize_config()?;
+        self.test_controller()?;
 
-        if !self.test_controller()? {
-            error!("ps2c: controller test failed");
-        }
-
-        debug!("ps2c: testing devices");
-        match self.test_devices()? {
-            (false, _) => warn!("ps2c: first device not supported"),
-            (_, false) => warn!("ps2c: second device not supported"),
+        // Test if both of the PS/2 ports are present for this device
+        let available_ports = self.test_ports(config)?;
+        match available_ports {
+            (false, _) => warn!("ps2c: first port not present"),
+            (_, false) => warn!("ps2c: second port not present"),
             _ => (),
         }
 
-        // Check if any devices are available
-        if self.reset_devices()? > 0 {
-            debug!("ps2c: prepared devices");
-        // TODO y?
+        // Enable interrupts again now that everything is set up
+        let mut config = self.config()?;
+        config.set(ConfigFlags::PORT_INTERRUPT_1, true);
+        config.set(ConfigFlags::PORT_INTERRUPT_2, true);
+        self.set_config(config);
 
-//        println!("ps2c: testing devices");
-//        match self.test_devices()? {
-//            (false, _) => println!("ps2c: first device not supported"),
-//            (_, false) => println!("ps2c: second device not supported"),
-//            _ => (),
-//        }
+        // Call the reset on all devices, including ones not considered present
+        PORTS.perform_port(|p| p.reset())?;
 
-        // Reset devices and propagate errors up
-        self.reset_devices().into_iter()
-            .filter_map(|x| *x)
-            .collect::<Result<(), Ps2Error>>()?;
+        debug!("ps2c: reset devices");
 
-        // Check if any devices are available
-        if self.discover_devices()? > 0 {
-            println!("ps2c: prepared devices");
-        } else {
-            info!("ps2c: detected no available devices");
-        }
-
+        // Make sure no initialization left anything in the output buffer
         io::flush_output();
 
         Ok(())
     }
 
-    /// Reads the config from the PS2 controller
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let config = controller.read_config();
-    /// ```
-    pub fn config(&self) -> Result<ConfigFlags, Ps2Error> {
-        let read = self.command_ret(ControllerReturnCommand::ReadConfig)?;
-
-        Ok(ConfigFlags::from_bits_truncate(read))
-    }
-
-    /// Writes the given config to the PS2 controller
-    ///
-    /// # Examples
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let config = ConfigFlags::from_bits_truncate(0xbeef);
-    /// controller.lock().write_config(config);
-    /// ```
-    pub fn set_config(&self, config: ConfigFlags) {
-        self.command_data(ControllerDataCommand::WriteConfig, config.bits())
-    }
-
-    /// Gets the device for the given port if available
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let device = controller.device(DevicePort::Keyboard).unwrap();
-    /// ```
-    pub fn device(&self, port: DevicePort) -> Option<&Device> {
-        if let Some(ref keyboard) = self.devices.keyboard {
-            if keyboard.port() == port {
-                return Some(keyboard as &_)
-            }
-        }
-
-        if let Some(ref mouse) = self.devices.mouse {
-            if mouse.port() == port {
-                return Some(mouse as &_)
-            }
-        }
-
-        None
-    }
-
-    pub fn device_mut(&mut self, port: DevicePort) -> Option<&mut Device> {
-        if let Some(keyboard) = self.devices.keyboard.as_mut() {
-            if keyboard.port() == port {
-                return Some(keyboard);
-            }
-        }
-
-<<<<<<< HEAD
-        debug!("ps2c: initialized config");
-=======
-        if let Some(mouse) = self.devices.mouse.as_mut() {
-            if mouse.port() == port {
-                return Some(mouse);
-            }
-        }
->>>>>>> Ps2 stuff
-
-        None
-    }
-
-    /// Gets the PS/2 keyboard if available
-    pub fn keyboard(&self) -> Option<&Keyboard> {
-        // TODO check if available
-        self.devices.keyboard.as_ref()
-    }
-
-    /// Gets the PS/2 keyboard mutably if available
-    pub fn keyboard_mut(&mut self) -> Option<&mut Keyboard> {
-        self.devices.keyboard.as_mut()
-    }
-
-    /// Gets the PS/2 mouse if available
-    pub fn mouse(&self) -> Option<&Mouse> {
-        self.devices.mouse.as_ref()
-    }
-
-    /// Gets the PS/2 mouse if available
-    pub fn mouse_mut(&mut self) -> Option<&mut Mouse> {
-        self.devices.mouse.as_mut()
-    }
-
     /// Initializes the config for this controller
-    fn initialize_config(&self) -> Result<(), Ps2Error> {
+    fn initialize_config(&self) -> Result<ConfigFlags, Ps2Error> {
         // Read the config from the controller
         let mut config = self.config()?;
 
@@ -278,88 +122,147 @@ impl Controller {
         // Write the updated config back to the controller
         self.set_config(config);
 
-        println!("ps2c: initialized config");
+        info!("ps2c: initialized config");
+
+        Ok(config)
+    }
+
+    /// Tests this controller, returning `Ok` if successful, or an `Ps2Error:InitializationError` if
+    /// it failed.
+    fn test_controller(&mut self) -> Result<(), Ps2Error> {
+        io::command(command::controller::Command::TestController);
+
+        let test_result = io::read_blocking(&io::DATA_PORT)?;
+        if test_result == io::CONTROLLER_TEST_SUCCESS {
+            debug!("ps2c: tested controller");
+            Ok(())
+        } else {
+            Err(Ps2Error::InitializationError(InitializationError::ControllerTestFailed(test_result)))
+        }
+    }
+
+    /// Test which ports are supported by this controller
+    fn test_ports(&mut self, config: ConfigFlags) -> Result<(bool, bool), Ps2Error> {
+        let mut config = config;
+
+        // Check if controller supports the second port
+        if config.contains(ConfigFlags::PORT_CLOCK_2) {
+            PortType::Port2.enable();
+            config = self.config()?;
+            PortType::Port2.disable();
+        }
+
+        // Test both ports
+        let first_supported = PortType::Port1.test()?;
+        let second_supported = !config.contains(ConfigFlags::PORT_CLOCK_2) && PortType::Port2.test()?;
+
+        config.set(ConfigFlags::PORT_CLOCK_1, true);
+        config.set(ConfigFlags::PORT_CLOCK_2, true);
+
+        let available_ports = (first_supported, second_supported);
+        PORTS.set((
+            if available_ports.0 { Some(DevicePort::new(PortType::Port1)) } else { None },
+            if available_ports.1 { Some(DevicePort::new(PortType::Port2)) } else { None },
+        ));
+
+        info!("ps2c: tested ports");
+
+        Ok(available_ports)
+    }
+
+    pub fn config(&self) -> Result<ConfigFlags, Ps2Error> {
+        io::command(command::controller::Command::ReadConfig);
+
+        let config_data = io::read_blocking(&io::DATA_PORT)?;
+        Ok(ConfigFlags::from_bits_truncate(config_data))
+    }
+
+    pub fn set_config(&self, config: ConfigFlags) {
+        io::command_data(command::controller::DataCommand::WriteConfig, config.bits())
+    }
+
+    pub fn keyboard(&mut self) -> Result<Keyboard<'a>, Ps2Error> {
+        self.refresh_state()?;
+
+        // Optionally map both of the devices to a keyboard
+        let keyboards = self.map_device(|d| d.as_keyboard());
+        keyboards.0.or(keyboards.1).ok_or_else(|| Ps2Error::DeviceUnavailable)
+    }
+
+    pub fn mouse(&mut self) -> Result<Mouse<'a>, Ps2Error> {
+        self.refresh_state()?;
+
+        // Optionally map both of the devices to a mouse
+        let mice = self.map_device(|d| d.as_mouse());
+        mice.0.or(mice.1).ok_or_else(|| Ps2Error::DeviceUnavailable)
+    }
+
+    fn refresh_state(&mut self) -> Result<(), Ps2Error> {
+        if refresh_port(&PORTS.0, &mut self.devices.0)? {
+            self.devices.0.as_mut().map(|d| d.init());
+        }
+
+        if refresh_port(&PORTS.1, &mut self.devices.1)? {
+            self.devices.1.as_mut().map(|d| d.init());
+        }
 
         Ok(())
     }
 
-    /// Tests this controller, returning `None` if no reply from the controller
-    fn test_controller(&mut self) -> Result<bool, Ps2Error> {
-        Ok(self.command_ret(ControllerReturnCommand::TestController)? == 0x55)
-    }
-
-    // TODO when should this be called?
-    // TODO eventually use interrupts?
-    fn discover_devices(&mut self) -> Result<u8, Ps2Error> {
-        // TODO debug_assert! that result isn't > 2 or < 2
-        unimplemented!()
-    }
-
-    /// Resets all devices
-    fn reset_devices(&mut self) -> [Option<Result<(), Ps2Error>>; 2] {
-        let results = self.devices.map(|d| d.reset());
-        [results.0, results.1]
-    }
-
-    /// Sends a controller command without a return
-    fn command(&self, cmd: ControllerCommand) { // TODO Does this even need to be a function
-        io::write(&io::STATUS_COMMAND_PORT, cmd as u8); // TODO prolly because strict cmd bound
-        // TODO this but as helper for device/mod.rs
-    }
-
-<<<<<<< HEAD
-    /// Sends a command for this PS2 device with data and returns a result
-    #[allow(dead_code)] // To be used by drivers interfacing with PS/2
-    pub fn command_data(&mut self, cmd: DeviceDataCommand, data: u8) -> Result<u8, Ps2Error> {
-        if self.state != DeviceState::Unavailable {
-            self.command_raw(cmd as u8).and_then(|result| match result {
-                ACK => {
-                    io::DATA_PORT.with_lock(|mut data_port| {
-                        io::write(&mut data_port, data as u8)?;
-                        io::read(&mut data_port)
-                    })
-                }
-                _ => Ok(result)
-            })
-        } else {
-            Err(Ps2Error::DeviceUnavailable)
-        }
-    }
-
-    /// Sends a raw command code to this device
-    fn command_raw(&mut self, cmd: u8) -> Result<u8, Ps2Error> {
-        if self.state != DeviceState::Unavailable {
-            // If second PS2 port, send context switch command
-            if self.port == DevicePort::Mouse {
-                commands::send(ControllerCommand::WriteInputPort2)?;
-            }
-
-            io::DATA_PORT.with_lock(|mut data_port| {
-                for _ in 0..4 {
-                    io::write(&mut data_port, cmd)?;
-                    match io::read(&mut data_port) {
-                        Ok(RESEND) => continue,
-                        result => return result,
-                    }
-                }
-
-                Err(Ps2Error::NoData)
-            })
-        } else {
-            Err(Ps2Error::DeviceUnavailable)
-        }
-=======
-    /// Sends a controller command with data and without a return
-    fn command_data(&self, cmd: ControllerDataCommand, data: u8) {
-        io::write(&io::STATUS_COMMAND_PORT, cmd as u8);
-        io::write(&io::DEVICE_DATA_PORT, data as u8);
-    }
-
-    /// Sends a controller command with a return
-    fn command_ret(&self, cmd: ControllerReturnCommand) -> Result<u8, Ps2Error> {
-        io::write(&STATUS_COMMAND_PORT, cmd as u8);
-        Ok(io::read(&DEVICE_DATA_PORT)?)
->>>>>>> Ps2 stuff
+    fn map_device<F, R>(&self, f: F) -> (Option<R>, Option<R>)
+        where F: Fn(&InternalDevice<'a>) -> Option<R> + Clone
+    {
+        (
+            self.devices.0.as_ref().and_then(f.clone()),
+            self.devices.1.as_ref().and_then(f.clone()),
+        )
     }
 }
 
+fn refresh_port<'a>(port_mutex: &'static Mutex<Option<DevicePort>>, device: &mut Option<InternalDevice<'a>>) -> Result<bool, Ps2Error> {
+    if let Some(ref mut port) = *port_mutex.lock() {
+        if port.is_dirty() {
+            debug!("ps2c: refreshing {:?} device", port.port_type);
+            port.set_dirty(false);
+
+            let ping = port.ping()?;
+            *device = if ping {
+                Some(InternalDevice::new(port.port_type, &port_mutex))
+            } else {
+                None
+            };
+
+            return Ok(ping);
+        }
+    }
+
+    Ok(false)
+}
+
+pub struct PortHolder(Mutex<Option<DevicePort>>, Mutex<Option<DevicePort>>);
+
+impl PortHolder {
+    const fn new() -> Self {
+        PortHolder(Mutex::new(None), Mutex::new(None))
+    }
+
+    fn set(&self, ports: (Option<DevicePort>, Option<DevicePort>)) {
+        *self.0.lock() = ports.0;
+        *self.1.lock() = ports.1;
+    }
+
+    fn perform_port<'b, F, R, E>(&self, f: F) -> Result<(Option<R>, Option<R>), E>
+        where F: Fn(&mut DevicePort) -> Result<R, E>
+    {
+        Ok((
+            match self.0.lock().as_mut() {
+                Some(ref mut port) => Some(f(port)?),
+                None => None,
+            },
+            match self.1.lock().as_mut() {
+                Some(ref mut port) => Some(f(port)?),
+                None => None,
+            },
+        ))
+    }
+}

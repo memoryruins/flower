@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use self::x86_io::{inb, inl, inw, outb, outl, outw};
 use spin::{Mutex, MutexGuard};
 
 pub mod x86_io {
@@ -38,8 +39,6 @@ pub mod x86_io {
         asm!("outl %eax, %dx" :: "{dx}"(port), "{eax}"(value) :: "volatile");
     }
 }
-
-use self::x86_io::{inb, inl, inw, outb, outl, outw};
 
 /// Nice little type that allows us to specify the size of the value read without using inb
 /// directly.

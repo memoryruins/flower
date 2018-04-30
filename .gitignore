@@ -5,3 +5,6 @@ kernel/Cargo.lock
 *.iml
 build/
 kernel/target/
+
+/target/
+**/*.rs.bk

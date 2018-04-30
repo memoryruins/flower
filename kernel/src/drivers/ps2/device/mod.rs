@@ -1,360 +1,377 @@
-// TODO examples out of date
-
-use core::convert::TryFrom;
+use spin::Mutex;
+use super::io::{self, command::*};
 use super::Ps2Error;
-use super::io::{self, DEVICE_DATA_PORT, STATUS_COMMAND_PORT};
-use super::io::command::{controller::ControllerCommand, device::DeviceCommand};
 
-/// Represents the state of a device.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum DeviceState {
-    /// The device has been detected but is not enabled
-    Available, // TODO are these right even tho
-    /// The device has been enabled
-    Enabled,
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PortType {
+    Port1,
+    Port2,
 }
 
-/// Represents the type of a device
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+impl PortType {
+    pub fn test(&self) -> Result<bool, Ps2Error> {
+        let cmd = match *self {
+            PortType::Port1 => controller::Command::TestPort1,
+            PortType::Port2 => controller::Command::TestPort2,
+        };
+
+        io::command(cmd);
+
+        let result = io::read_blocking(&io::DATA_PORT);
+        match result {
+            Some(0x0) => Ok(true),
+            Some(_) => Ok(false),
+            None => Err(Ps2Error::ExpectedResponse)
+        }
+    }
+
+    pub fn enable(&self) {
+        match *self {
+            PortType::Port1 => io::command(controller::Command::EnablePort1),
+            PortType::Port2 => io::command(controller::Command::EnablePort2),
+        }
+    }
+
+    pub fn disable(&self) {
+        match *self {
+            PortType::Port1 => io::command(controller::Command::DisablePort1),
+            PortType::Port2 => io::command(controller::Command::DisablePort2),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DeviceType {
+    Unknown,
+    Keyboard(KeyboardType),
+    Mouse(MouseType),
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum KeyboardType {
     TranslatedAtKeyboard,
+    Mf2Keyboard,
+    Mf2TranslatedKeyboard,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MouseType {
     Mouse,
     MouseWithScrollWheel,
     FiveButtonMouse,
-    Mf2Keyboard,
-    TranslatedMf2Keyboard,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct UnknownDevice {
-    pub identifier: u8
+#[derive(Debug, Eq, PartialEq)]
+pub struct DevicePort {
+    pub port_type: PortType,
+    enabled: bool,
+    dirty: bool,
 }
 
-impl TryFrom<u8> for DeviceType {
-    type Error = UnknownDevice;
-
-    fn try_from(value: u8) -> Result<Self, UnknownDevice> {
-        use self::DeviceType::*;
-
-        match value {
-            0x00 => Ok(Mouse),
-            0x03 => Ok(MouseWithScrollWheel),
-            0x04 => Ok(FiveButtonMouse),
-            0xAB | 0x83 => Ok(Mf2Keyboard),
-            // According to Osdev wiki, a translated MF2 keyboard can also be 0xAB, but here it is
-            // given higher priority to MF2 keyboards proper
-            0x41 | 0xC1 => Ok(TranslatedMf2Keyboard),
-            identifier => Err(UnknownDevice { identifier }),
-        }
-    }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum DevicePort {
-    One,
-    Two
-}
-
-/// A PS2 device
-// TODO mut for device or not? Cpu io mut or not?
-pub trait Device {
-    fn port(&self) -> DevicePort;
-
-    /// Enables this device
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let device = controller.device(DevicePort::Keyboard);
-    /// match device.enable() {
-    ///     Ok(()) => println!("Device enabled"),
-    ///     Err(err) => println!("Error enabling device: {:?}", err)
-    /// }
-    ///
-    /// ```
-    fn enable(&self) {
-        let cmd = if self.port() == DevicePort::One {
-            ControllerCommand::EnablePort1
-        } else {
-            ControllerCommand::EnablePort2
-        };
-        io::write(&STATUS_COMMAND_PORT, cmd as u8);
-    }
-
-    /// Disables this device
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let device = controller.device(DevicePort::Keyboard);
-    /// match device.disable() {
-    ///     Ok(()) => println!("Device disabled"),
-    ///     Err(err) => println!("Error disabling device: {:?}", err)
-    /// }
-    /// ```
-    // TODO must be public?
-    fn disable(&self) {
-        let cmd = if self.port() == DevicePort::One {
-            ControllerCommand::DisablePort1
-        } else {
-            ControllerCommand::DisablePort2
-        };
-        io::write(&STATUS_COMMAND_PORT, cmd as u8);
-    }
-
-    /// Enables scanning for this device. This will signal the device to begin sending data again,
-    /// like scancodes from keyboards and updates from mice.
-    fn enable_scanning(&self) -> Result<(), Ps2Error> {
-        command(self, DeviceCommand::EnableScanning as u8)
-    }
-
-    /// Disables scanning for this device. This will stop the device from sending data, like
-    /// scancodes from keyboards and updates from mice.
-    fn disable_scanning(&self) -> Result<(), Ps2Error> {
-        command(self, DeviceCommand::DisableScanning as u8)
-    }
-
-    /// Sets the parameters of this device to default parameters
-    fn set_defaults(&self) -> Result<(), Ps2Error> {
-        command(self, DeviceCommand::SetDefaults as u8)
-    }
-
-    /// Resets this device
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let controller = ps2::CONTROLLER.lock();
-    /// let device = controller.device(DevicePort::Keyboard);
-    /// match device.reset() {
-    ///     Ok(()) => println!("Device reset"),
-    ///     Err(err) => println!("Error resetting device: {:?}", err)
-    /// }
-    /// ```
-    fn reset(&self) -> Result<(), Ps2Error> {
-        command(self, DeviceCommand::Reset as u8)
-    }
-
-    fn identify(&self) -> Result<DeviceType, Ps2Error> {
-        // TODO
-        unimplemented!()
-    }
-
-    // TODO caching with interrupts?
-    fn state(&self) -> Result<DeviceState, Ps2Error> {
-        // TODO
-        unimplemented!()
-    }
-}
-
-/// Sends a raw command code to this device
-fn command<D: Device + ?Sized>(device: &D, cmd: u8) -> Result<(), Ps2Error> {
-    if device.state()? != DeviceState::Enabled {
-        return Err(Ps2Error::DeviceDisabled)
-    }
-
-    // If second PS2 port, send context switch command
-    if device.port() == DevicePort::Two {
-        io::write(&STATUS_COMMAND_PORT, ControllerCommand::WriteInputPort2 as u8);
-    }
-
-    // TODO this whole pattern can go into a function ew
-    for _ in 0..io::RETRIES {
-        io::write(&io::DEVICE_DATA_PORT, cmd);
-        match io::read(&DEVICE_DATA_PORT) {
-            Some(io::RESEND) => continue,
-            Some(io::ACK) => return Ok(()), // TODO check dis
-            Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
-            None => return Err(Ps2Error::ExpectedResponse),
+impl DevicePort {
+    pub const fn new(port: PortType) -> Self {
+        DevicePort {
+            port_type: port,
+            enabled: false,
+            dirty: true,
         }
     }
 
-    Ok(())
-}
-
-/// Sends a raw command code to this device and returns
-// TODO no?
-// TODO needs mut?
-fn command_ret<D: Device + ?Sized>(device: &D, cmd: u8) -> Result<u8, Ps2Error> {
-    if device.state()? != DeviceState::Enabled {
-        return Err(Ps2Error::DeviceDisabled)
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
     }
 
-    if device.port() == DevicePort::Two {
-        io::write(&STATUS_COMMAND_PORT, ControllerCommand::WriteInputPort2 as u8);
+    pub fn test(&self) -> Result<bool, Ps2Error> {
+        self.port_type.test()
     }
 
-    for _ in 0..io::RETRIES {
-        io::write(&io::DEVICE_DATA_PORT, cmd);
-        match io::read(&DEVICE_DATA_PORT) {
-            Some(io::RESEND) => continue,
-            Some(result) => return Ok(result),
-            None => return Err(Ps2Error::ExpectedResponse)
-        }
+    pub fn reset(&self) -> Result<(), Ps2Error> {
+        self.command_device(device::Command::Reset)?;
+
+        Ok(())
     }
 
-    Err(Ps2Error::ExpectedResponse)
-}
-
-/// Sends a raw command to this PS2 device with data
-// TODO needs mut?
-fn command_data<D: Device + ?Sized>(device: &D, cmd: u8, data: u8) -> Result<(), Ps2Error> {
-    if device.state()? != DeviceState::Enabled {
-        return Err(Ps2Error::DeviceDisabled)
+    pub fn enable(&mut self) {
+        self.port_type.enable();
+        self.enabled = true;
     }
 
-    // If second PS2 port, send context switch command
-    if device.port() == DevicePort::Two {
-        io::write(&STATUS_COMMAND_PORT, ControllerCommand::WriteInputPort2 as u8);
+    pub fn disable(&mut self) {
+        self.port_type.disable();
+        self.enabled = false;
     }
 
-    let mut ok = false;
-    for _ in 0..io::RETRIES {
-        io::write(&io::DEVICE_DATA_PORT, cmd);
-        match io::read(&DEVICE_DATA_PORT) {
-            Some(io::RESEND) => continue,
-            Some(io::ACK) => {
-                ok = true;
-                break;
-            },
-            Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
-            None => return Err(Ps2Error::ExpectedResponse),
-        }
-    }
-
-    if !ok {
-        return Err(Ps2Error::RetriesExceeded);
-    }
-
-    for _ in 0..io::RETRIES {
-        io::write(&io::DEVICE_DATA_PORT, data);
-        match io::read(&DEVICE_DATA_PORT) {
-            Some(io::RESEND) => continue,
-            Some(io::ACK) => return Ok(()), // TODO check dis
-            Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
-            None => return Err(Ps2Error::ExpectedResponse),
-        }
-    }
-
-    Ok(())
-}
-
-
-struct GenericDevice {
-    port: DevicePort
-}
-
-// TODO
-impl GenericDevice {
-
-}
-
-pub struct Keyboard {
-    port: DevicePort
-}
-
-/// Represents a PS/2 scanset
-#[allow(dead_code)] // Dead variants for completeness
-#[repr(u8)]
-pub enum Scanset {
-    One = 1,
-    Two = 2,
-    Three = 3
-}
-
-/// Represents a PS/2 scancode received from the device
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Scancode {
-    pub code: u8,
-    pub extended: bool,
-    pub make: bool,
-}
-
-impl Scancode {
-    /// Constructs a new [Ps2Scancode]
-    fn new(scancode: u8, extended: bool, make: bool) -> Self {
-        Scancode { code: scancode, extended, make }
-    }
-}
-
-impl Keyboard {
-    pub const fn new(port: DevicePort) -> Self {
-        Keyboard { port }
-    }
-
-    /// Reads a single scancode from this PS/2 keyboard, returning None if the next byte to be read
-    /// from PS/2 is not for the keyboard, or if there is no available byte to be read.
-    // TODO this ^ could create a situation where the keyboard is waiting for data from the mouse to
-    // be read so that it can read
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// let device = drivers::ps2::CONTROLLER.device(drivers::ps2::DevicePort::Keyboard);
-    /// let mut keyboard = Ps2Keyboard::new(device);
-    ///
-    /// if let Some(scancode) = keyboard.read_scancode()? {
-    ///     print!(scancode);
-    /// }
-    /// ```
-    pub fn read_scancode(&self) -> Result<Option<Scancode>, Ps2Error> {
-        // TODO when check state
-        // TODO illegal state unrepresentable?
-//        if self.state()? != DeviceState::Enabled {
-//            return Err(Ps2Error::DeviceDisabled)
-//        }
-
-        if io::can_read() && io::can_read_keyboard() {
-            return Ok(None)
-        }
-
-        let mut make = true;
-        let mut extended = false;
-
-        // Get all scancode modifiers, and return when the actual scancode is received
-        let scancode = loop {
-            let data = io::read(&io::DEVICE_DATA_PORT)?;
-            match data {
-                0xE0 | 0xE1 => extended = true,
-                0xF0 => make = false,
-                data => {
-                    break data;
-                },
+    pub fn ping(&mut self) -> Result<bool, Ps2Error> {
+        // We assume that the device is dead until we get a response
+        // Try ping the device 3 times before giving up and assuming dead
+        for _i in 0..3 {
+            // If a response was received from the echo command
+            if let Ok(_) = self.command_device(device::Command::Echo) {
+                self.command_device(device::Command::ResetEcho)?;
+                debug!("ps2c: pinged {:?}", self.port_type);
+                return Ok(true);
             }
-        };
+        }
 
-        // If scancode is present, return it with modifiers
-        return Ok(if scancode != 0 {
-            Some(Scancode::new(scancode, extended, make))
+        debug!("ps2c: got no ping response from {:?}", self.port_type);
+        Ok(false)
+    }
+
+    fn command_device(&self, cmd: device::Command) -> Result<(), Ps2Error> {
+        command_raw(self, cmd as u8)
+    }
+
+    pub fn is_enabled(&self) -> bool { self.enabled }
+
+    pub fn is_dirty(&self) -> bool { self.dirty }
+}
+
+pub trait Device {
+    fn port(&self) -> &Mutex<Option<DevicePort>>;
+
+    fn is_mouse(&self) -> bool;
+
+    fn is_keyboard(&self) -> bool;
+
+    fn command_keyboard(&self, cmd: device::keyboard::Command) -> Result<(), Ps2Error> {
+        if self.is_enabled() {
+            if self.is_keyboard() {
+                let port = self.port().lock();
+                command_raw(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8)
+            } else {
+                Err(Ps2Error::WrongDeviceType)
+            }
+        } else {
+            Err(Ps2Error::DeviceDisabled)
+        }
+    }
+
+    fn command_mouse(&self, cmd: device::mouse::Command) -> Result<(), Ps2Error> {
+        if self.is_enabled() {
+            if self.is_mouse() {
+                let port = self.port().lock();
+                command_raw(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8)
+            } else {
+                Err(Ps2Error::WrongDeviceType)
+            }
+        } else {
+            Err(Ps2Error::DeviceDisabled)
+        }
+    }
+
+    fn command_keyboard_data(&self, cmd: device::keyboard::DataCommand, data: u8) -> Result<(), Ps2Error> {
+        if self.is_enabled() {
+            if self.is_keyboard() {
+                let port = self.port().lock();
+                command_raw_data(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8, data)
+            } else {
+                Err(Ps2Error::WrongDeviceType)
+            }
+        } else {
+            Err(Ps2Error::DeviceDisabled)
+        }
+    }
+
+    fn command_mouse_data(&self, cmd: device::mouse::DataCommand, data: u8) -> Result<(), Ps2Error> {
+        if self.is_enabled() {
+            if self.is_mouse() {
+                let port = self.port().lock();
+                command_raw_data(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8, data)
+            } else {
+                Err(Ps2Error::WrongDeviceType)
+            }
+        } else {
+            Err(Ps2Error::DeviceDisabled)
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        if let Some(port) = self.port().lock().as_ref() {
+            port.is_enabled()
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalDevice<'a> {
+    port_type: PortType,
+    port: &'a Mutex<Option<DevicePort>>,
+    identity: DeviceType,
+}
+
+impl<'a> InternalDevice<'a> {
+    pub fn new(port_type: PortType, port: &'a Mutex<Option<DevicePort>>) -> Self {
+        InternalDevice {
+            port_type,
+            port,
+            identity: DeviceType::Unknown,
+        }
+    }
+
+    pub fn init(&mut self) {
+        match self.identify() {
+            Ok(identity) => {
+                debug!("ps2c: identified device in {:?} as {:?}", self.port_type, identity);
+                self.identity = identity;
+            }
+            Err(err) => warn!("ps2c: failed to identify device in {:?}: {:?}", self.port_type, err),
+        }
+    }
+
+    pub fn as_keyboard(&self) -> Option<Keyboard<'a>> {
+        if self.is_keyboard() {
+            Some(Keyboard::new(self.port))
         } else {
             None
-        });
+        }
     }
 
-    pub fn set_scanset(&self, scanset: Scanset) -> Result<(), Ps2Error> {
-        unimplemented!() // TODO
+    pub fn as_mouse(&self) -> Option<Mouse<'a>> {
+        if self.is_mouse() {
+            Some(Mouse::new(self.port))
+        } else {
+            None
+        }
+    }
+
+    fn identify(&mut self) -> Result<DeviceType, Ps2Error> {
+        use self::DeviceType::*;
+
+        if let Some(ref mut port) = *self.port.lock() {
+            port.command_device(device::Command::IdentifyDevice)?;
+
+            let mut mf2 = false;
+            let identity_result = loop {
+                let response = io::read_blocking(&io::DATA_PORT);
+
+                match response {
+                    // If the first byte we receive is 0xAB, this is an MF2 device
+                    Some(0xAB) if !mf2 => mf2 = true,
+                    // If we get an identity, break with it
+                    Some(identity) => break Some(identity),
+                    // If nothing is returned, we can assume we're not going to get any response
+                    None => break None,
+                }
+            };
+
+            let identity = if let Some(identity) = identity_result {
+                match identity {
+                    0x41 | 0xC1 if mf2 => Keyboard(KeyboardType::Mf2TranslatedKeyboard),
+                    0x83 if mf2 => Keyboard(KeyboardType::Mf2Keyboard),
+
+                    0x00 if !mf2 => Mouse(MouseType::Mouse),
+                    0x03 if !mf2 => Mouse(MouseType::MouseWithScrollWheel),
+                    0x04 if !mf2 => Mouse(MouseType::FiveButtonMouse),
+                    _ => Unknown,
+                }
+            } else {
+                // If no response is returned, it must be a translated AT keyboard
+                Keyboard(KeyboardType::TranslatedAtKeyboard)
+            };
+
+            Ok(identity)
+        } else {
+            Err(Ps2Error::DeviceUnavailable)
+        }
     }
 }
 
-impl Device for Keyboard {
-    fn port(&self) -> DevicePort {
-        self.port
+impl<'a> Device for InternalDevice<'a> {
+    fn port(&self) -> &Mutex<Option<DevicePort>> { self.port }
+
+    fn is_mouse(&self) -> bool {
+        match self.identity {
+            DeviceType::Mouse(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_keyboard(&self) -> bool {
+        match self.identity {
+            DeviceType::Keyboard(_) => true,
+            _ => false,
+        }
     }
 }
 
-pub struct Mouse {
-    port: DevicePort
+#[derive(Debug)]
+pub struct Keyboard<'a> {
+    internal: &'a Mutex<Option<DevicePort>>,
 }
 
-impl Mouse {
-    pub const fn new(port: DevicePort) -> Self {
-        Mouse { port }
+impl<'a> Keyboard<'a> {
+    const fn new(internal: &'a Mutex<Option<DevicePort>>) -> Self {
+        Keyboard { internal }
     }
 }
 
-impl Device for Mouse {
-    fn port(&self) -> DevicePort {
-        self.port
+impl<'a> Device for Keyboard<'a> {
+    fn port(&self) -> &Mutex<Option<DevicePort>> { self.internal }
+
+    fn is_mouse(&self) -> bool { false }
+
+    fn is_keyboard(&self) -> bool { true }
+}
+
+#[derive(Debug)]
+pub struct Mouse<'a> {
+    internal: &'a Mutex<Option<DevicePort>>,
+}
+
+impl<'a> Mouse<'a> {
+    const fn new(internal: &'a Mutex<Option<DevicePort>>) -> Self {
+        Mouse { internal }
+    }
+}
+
+impl<'a> Device for Mouse<'a> {
+    fn port(&self) -> &Mutex<Option<DevicePort>> { self.internal }
+
+    fn is_mouse(&self) -> bool { true }
+
+    fn is_keyboard(&self) -> bool { false }
+}
+
+fn command_raw(port: &DevicePort, cmd: u8) -> Result<(), Ps2Error> {
+    let mut retries: u32 = 0;
+    let result = loop {
+        if retries >= 3 {
+            break Err(Ps2Error::RetriesExceeded);
+        }
+        retries += 1;
+
+        // If device is in the second port, send context switch command
+        if port.port_type == PortType::Port2 {
+            io::command(controller::Command::WriteCommandPort2);
+        }
+
+        io::flush_output();
+        io::write_blocking(&io::DATA_PORT, cmd);
+
+        let value = io::read_blocking(&io::DATA_PORT);
+        match value {
+            Some(io::ACK) | Some(io::ECHO) => break Ok(()),
+            Some(io::RESEND) => continue,
+            Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
+            None => break Err(Ps2Error::ExpectedResponse),
+        }
+    };
+
+    result
+}
+
+fn command_raw_data(port: &DevicePort, cmd: u8, data: u8) -> Result<(), Ps2Error> {
+    match command_raw(port, cmd) {
+        Ok(_) => {
+            io::write_blocking(&io::DATA_PORT, data);
+            match io::read_blocking(&io::DATA_PORT) {
+                Some(io::ACK) => return Ok(()),
+                Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
+                None => return Err(Ps2Error::ExpectedResponse),
+            }
+        }
+        result => result
     }
 }

@@ -1,119 +1,99 @@
-//! Enums representing PS2 commands
-
-// TODO doc
+//! All PS/2 command related functionality or constants
+// TODO: Document module and all command functionalities
 
 /// Enums representing controller commands
 pub mod controller {
-    // TODO add more controller cmd's
-    /// Represents a PS2 controller command without a return value
+    // TODO: Add remaining unimplemented controller commands
+    /// Represents a PS/2 controller command
     #[derive(Copy, Clone, Debug)]
     #[repr(u8)]
-    pub enum ControllerCommand {
-        DisablePort2 = 0xA7, // done
-        EnablePort2 = 0xA8, // done
-        DisablePort1 = 0xAD, // done
-        EnablePort1 = 0xAE, // done
-        WriteInputPort2 = 0xD4, // done
+    pub enum Command {
+        DisablePort2 = 0xA7,
+        EnablePort2 = 0xA8,
+        DisablePort1 = 0xAD,
+        EnablePort1 = 0xAE,
+        WriteCommandPort2 = 0xD4,
+        /// Returns
+        ReadConfig = 0x20,
+        /// Returns
+        TestController = 0xAA,
+        /// Returns
+        TestPort1 = 0xAB,
+        /// Returns
+        TestPort2 = 0xA9,
     }
 
-    /// Represents a PS2 controller command with a return value
+    /// Represents a PS/2 controller command with a data value
     #[derive(Copy, Clone, Debug)]
     #[repr(u8)]
-    pub enum ControllerReturnCommand {
-        ReadConfig = 0x20, // done
-        TestController = 0xAA, // done
-        TestPort1 = 0xAB, // done
-        TestPort2 = 0xA9, // done
-        IdentifyDevice = 0xF2, // TODO
-    }
-
-    /// Represents a PS2 controller command with a data value
-    #[derive(Copy, Clone, Debug)]
-    #[repr(u8)]
-    pub enum ControllerDataCommand {
-        WriteConfig = 0x60, // done
+    pub enum DataCommand {
+        WriteConfig = 0x60,
     }
 }
 
-/// Enums representing PS2 device commands
+/// Enums representing PS/2 device commands
 pub mod device {
-
-    /// Represents a general PS2 device command without a return and without additional data
+    /// Represents a general PS/2 device command without additional data
     #[derive(Copy, Clone, Debug)]
     #[repr(u8)]
-    pub enum DeviceCommand {
-        // TODO doc
-        EnableScanning = 0xF4, // done
-        DisableScanning = 0xF5, // done // TODO may reset defautls?? WTF?
-        SetDefaults = 0xF6, // done
-        Reset = 0xFF, // done
-    }
-
-    /// Represents a general PS2 device command without a return and with additional data
-    #[derive(Copy, Clone, Debug)]
-    #[repr(u8)]
-    pub enum DeviceReturnCommand {
-        Resend = 0xFE, // TODO
-        IdentifyDevice = 0xF2 // TODO
+    pub enum Command {
+        SetDefaults = 0xF6,
+        Reset = 0xFF,
+        /// Returns
+        IdentifyDevice = 0xF2,
+        /// Returns
+        Echo = 0xEE,
+        ResetEcho = 0xEC,
     }
 
     pub mod keyboard {
         #[derive(Copy, Clone, Debug)]
         #[repr(u8)]
-        pub enum KeyboardCommand {
+        pub enum Command {
             /// Scan set 3 only
-            SetAllKeysToRepeatingOnly = 0xF7, // TODO
+            SetAllKeysToRepeatingOnly = 0xF7, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToMakeReleaseOnly = 0xF8, // TODO
+            SetAllKeysToMakeReleaseOnly = 0xF8, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToMakeOnly = 0xF9, // TODO
+            SetAllKeysToMakeOnly = 0xF9, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToRepeatingMakeRelease = 0xFa // TODO
+            SetAllKeysToRepeatingMakeRelease = 0xFA, // TODO: Call
         }
 
-        /// Represents a PS2 keyboard command without a return and with additional data
+        /// Represents a PS/2 keyboard command where additional data can be sent
         #[derive(Copy, Clone, Debug)]
         #[repr(u8)]
-        pub enum KeyboardDataCommand {
-            SetLeds = 0xED, // TODO
-            SetTypematicOptions = 0xF3,  // TODO
+        pub enum DataCommand {
+            SetLeds = 0xED, // TODO: Call
+            SetTypematicOptions = 0xF3,  // TODO: Call
             /// Scan set 3 only
-            SetKeyRepeatingOnly = 0xFB, // TODO,
+            SetKeyRepeatingOnly = 0xFB, // TODO: Call
             /// Scan set 3 only
-            SetKeyMakeReleaseOnly = 0xFC, // TODO
+            SetKeyMakeReleaseOnly = 0xFC, // TODO: Call
             /// Scan set 3 only
-            SetKeyMakeOnly = 0xFD // TODO
+            SetKeyMakeOnly = 0xFD, // TODO: Call
+            SetGetScancode = 0xF0, // TODO: Call and document weirdness
         }
-
-        #[derive(Copy, Clone, Debug)]
-        #[repr(u8)]
-        pub enum KeyboardReturnCommand {
-            Echo = 0xEE, // TODO
-        }
-
-        // This is in its own const since it's so weird
-        // It *can* return depending on the data sent, but otherwise it doesn't
-        const SET_GET_SCANCODE: u8 = 0xF0;
     }
 
     pub mod mouse {
-        /// Represents a PS2 mouse command without a return and without additional data
+        /// Represents a PS/2 mouse command without a return and without additional data
         #[derive(Copy, Clone, Debug)]
         #[repr(u8)]
-        pub enum MouseCommand {
-            SetRemoteMode = 0xF0, // TODO
-            SetWrapMode = 0xEE, // TODO
-            ResetWrapMode = 0xEC, // TODO
-            SetStreamMode = 0xEA, // TODO
-            StatusRequest = 0xE9 // TODO // TODO is this returning?
+        pub enum Command {
+            SetRemoteMode = 0xF0, // TODO: Call
+            SetWrapMode = 0xEE, // TODO: Call
+            SetStreamMode = 0xEA, // TODO: Call
+            StatusRequest = 0xE9, // TODO: Call
+            RequestSinglePacket = 0xEB, // TODO: Call (check device removal; is this a returning packet?)
         }
 
-        /// Represents a PS2 mouse command with additional data
+        /// Represents a PS/2 mouse command where additional data can be sent
         #[derive(Copy, Clone, Debug)]
         #[repr(u8)]
-        pub enum MouseCommandData {
-            SetSampleRate = 0xF3, // TODO
-            SetResolution = 0xE8 // TODO
+        pub enum DataCommand {
+            SetSampleRate = 0xF3, // TODO: Call
+            SetResolution = 0xE8, // TODO: Call
         }
     }
 }

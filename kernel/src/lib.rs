@@ -7,11 +7,9 @@
 #![feature(slice_rotate)]
 #![feature(try_from)]
 #![feature(nll)]
-#![feature(inclusive_range_syntax)]
 #![feature(try_trait)]
 #![feature(type_ascription)]
 #![feature(ptr_internals)]
-#![feature(use_nested_groups)]
 
 extern crate array_init;
 #[macro_use]
@@ -22,12 +20,6 @@ extern crate rlibc;
 extern crate spin;
 extern crate volatile;
 extern crate x86_64;
-// Used as a workaround until const-generics arrives
-
-use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
-use drivers::keyboard::keymap;
-use drivers::ps2;
-use terminal::TerminalOutput;
 
 mod lang;
 #[macro_use]
@@ -36,10 +28,14 @@ mod log;
 mod util;
 #[macro_use]
 mod color;
-mod io;
 #[macro_use]
 mod terminal;
+mod io;
 mod drivers;
+
+use drivers::ps2;
+//use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
+use terminal::TerminalOutput;
 
 /// Kernel main function
 #[no_mangle]
@@ -59,31 +55,31 @@ pub extern fn kmain() -> ! {
     terminal::STDOUT.write().set_color(color!(White on Black))
         .expect("Color should be supported");
 
-    let mut controller = ps2::CONTROLLER.lock();
-    match controller.initialize() {
-        Ok(_) => info!("ps2c: init successful"),
-        Err(error) => error!("ps2c: {:?}", error),
+    let mut controller = ps2::Controller::new();
+    match controller.setup() {
+        Ok(_) => info!("ps2c: successful setup"),
+        Err(error) => error!("ps2c: threw error: {:?}", error),
     }
 
-    if let Some(keyboard) = controller.keyboard() {
-        let mut keyboard = Ps2Keyboard::new(keyboard);
-
-        if let Ok(_) = keyboard.enable() {
-            println!("kbd: successfully enabled");
-            loop {
-                if let Ok(Some(event)) = keyboard.read_event() {
-                    if event.event_type != KeyEventType::Break {
-                        if let Some(char) = event.char {
-                            print!("{}", char);
-                        }
-                    }
-                }
-            }
-        } else {
-            println!("kbd: enable unsuccessful");
-        }
+    if let Ok(keyboard) = controller.keyboard() {
+//        let mut keyboard = Ps2Keyboard::new(keyboard);
+//
+//        if let Ok(_) = keyboard.enable() {
+//            println!("kbd: successfully enabled");
+//            loop {
+//                if let Ok(Some(event)) = keyboard.read_event() {
+//                    if event.event_type != KeyEventType::Break {
+//                        if let Some(char) = event.char {
+//                            print!("{}", char);
+//                        }
+//                    }
+//                }
+//            }
+//        } else {
+//            println!("kbd: enable unsuccessful");
+//        }
     } else {
-        println!("kbd: not available");
+        warn!("kbd: not available");
     }
 
     halt()

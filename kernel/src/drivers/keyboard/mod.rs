@@ -166,7 +166,7 @@ pub trait Keyboard {
 
 /// Handles interface to a PS/2 keyboard, if available
 pub struct Ps2Keyboard<'a> {
-    device: &'a ps2::Keyboard, // TODO deal with not here
+    device: &'a ps2::device::Keyboard<'a>, // TODO deal with not here
     key_states: [bool; 0xFF],
 }
 
@@ -179,14 +179,13 @@ impl<'a> Ps2Keyboard<'a> {
     /// let device = drivers::ps2::CONTROLLER.device(drivers::ps2::DevicePort::Keyboard);
     /// let mut keyboard = Ps2Keyboard::new(device);
     /// ```
-    pub fn new(device: &'a ps2::Keyboard) -> Self {
+    pub fn new(device: &ps2::device::Keyboard) -> Self {
         Ps2Keyboard {
             device,
             key_states: [false; 0xFF],
         }
     }
 
-<<<<<<< HEAD
     /// Reads a single scancode from this PS/2 keyboard
     ///
     /// # Examples
@@ -234,8 +233,6 @@ impl<'a> Ps2Keyboard<'a> {
         }
     }
 
-=======
->>>>>>> Ps2 stuff
     /// Creates a [KeyEvent] from the given scancode and key state
     ///
     /// # Examples
@@ -311,7 +308,6 @@ impl<'a> Keyboard for Ps2Keyboard<'a> {
 pub struct Keycode {
     inner: u8
 }
-
 
 impl Deref for Keycode {
     type Target = u8;
