@@ -86,7 +86,7 @@ impl DevicePort {
     }
 
     pub fn reset(&self) -> Result<(), Ps2Error> {
-        self.command_device(device::Command::Reset)?;
+        self.command_port(device::Command::Reset)?;
 
         Ok(())
     }
@@ -106,8 +106,11 @@ impl DevicePort {
         // Try ping the device 3 times before giving up and assuming dead
         for _i in 0..3 {
             // If a response was received from the echo command
-            if let Ok(_) = self.command_device(device::Command::Echo) {
-                self.command_device(device::Command::ResetEcho)?;
+            if let Ok(_) = command_raw(self, device::Command::Echo as u8) {
+                // Second port requires this after calling echo, or it will repeat back all bytes
+                if self.port_type == PortType::Port2 {
+                    self.command_port(device::Command::ResetEcho)?;
+                }
                 debug!("ps2c: pinged {:?}", self.port_type);
                 return Ok(true);
             }
@@ -117,8 +120,13 @@ impl DevicePort {
         Ok(false)
     }
 
-    fn command_device(&self, cmd: device::Command) -> Result<(), Ps2Error> {
-        command_raw(self, cmd as u8)
+    fn command_port(&self, cmd: device::Command) -> Result<(), Ps2Error> {
+        // TODO: This is not ideal, as `ping` has to call command_raw directly. How can this be refactored?
+        match command_raw(self, cmd as u8) {
+            // We're only commanding the port so we don't care if the device doesn't exist
+            Err(Ps2Error::DeviceUnavailable) | Err(Ps2Error::RetriesExceeded) => Ok(()),
+            result => result,
+        }
     }
 
     pub fn is_enabled(&self) -> bool { self.enabled }
@@ -132,6 +140,15 @@ pub trait Device {
     fn is_mouse(&self) -> bool;
 
     fn is_keyboard(&self) -> bool;
+
+    fn command_device(&self, cmd: device::Command) -> Result<(), Ps2Error> {
+        if self.is_enabled() {
+            let port = self.port().lock();
+            command_raw(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8)
+        } else {
+            Err(Ps2Error::DeviceDisabled)
+        }
+    }
 
     fn command_keyboard(&self, cmd: device::keyboard::Command) -> Result<(), Ps2Error> {
         if self.is_enabled() {
@@ -239,42 +256,38 @@ impl<'a> InternalDevice<'a> {
     fn identify(&mut self) -> Result<DeviceType, Ps2Error> {
         use self::DeviceType::*;
 
-        if let Some(ref mut port) = *self.port.lock() {
-            port.command_device(device::Command::IdentifyDevice)?;
+        self.command_device(device::Command::IdentifyDevice)?;
 
-            let mut mf2 = false;
-            let identity_result = loop {
-                let response = io::read_blocking(&io::DATA_PORT);
+        let mut mf2 = false;
+        let identity_result = loop {
+            let response = io::read_blocking(&io::DATA_PORT);
 
-                match response {
-                    // If the first byte we receive is 0xAB, this is an MF2 device
-                    Some(0xAB) if !mf2 => mf2 = true,
-                    // If we get an identity, break with it
-                    Some(identity) => break Some(identity),
-                    // If nothing is returned, we can assume we're not going to get any response
-                    None => break None,
-                }
-            };
+            match response {
+                // If the first byte we receive is 0xAB, this is an MF2 device
+                Some(0xAB) if !mf2 => mf2 = true,
+                // If we get an identity, break with it
+                Some(identity) => break Some(identity),
+                // If nothing is returned, we can assume we're not going to get any response
+                None => break None,
+            }
+        };
 
-            let identity = if let Some(identity) = identity_result {
-                match identity {
-                    0x41 | 0xC1 if mf2 => Keyboard(KeyboardType::Mf2TranslatedKeyboard),
-                    0x83 if mf2 => Keyboard(KeyboardType::Mf2Keyboard),
+        let identity = if let Some(identity) = identity_result {
+            match identity {
+                0x41 | 0xC1 if mf2 => Keyboard(KeyboardType::Mf2TranslatedKeyboard),
+                0x83 if mf2 => Keyboard(KeyboardType::Mf2Keyboard),
 
-                    0x00 if !mf2 => Mouse(MouseType::Mouse),
-                    0x03 if !mf2 => Mouse(MouseType::MouseWithScrollWheel),
-                    0x04 if !mf2 => Mouse(MouseType::FiveButtonMouse),
-                    _ => Unknown,
-                }
-            } else {
-                // If no response is returned, it must be a translated AT keyboard
-                Keyboard(KeyboardType::TranslatedAtKeyboard)
-            };
-
-            Ok(identity)
+                0x00 if !mf2 => Mouse(MouseType::Mouse),
+                0x03 if !mf2 => Mouse(MouseType::MouseWithScrollWheel),
+                0x04 if !mf2 => Mouse(MouseType::FiveButtonMouse),
+                _ => Unknown,
+            }
         } else {
-            Err(Ps2Error::DeviceUnavailable)
-        }
+            // If no response is returned, it must be a translated AT keyboard
+            Keyboard(KeyboardType::TranslatedAtKeyboard)
+        };
+
+        Ok(identity)
     }
 }
 
@@ -335,31 +348,24 @@ impl<'a> Device for Mouse<'a> {
 }
 
 fn command_raw(port: &DevicePort, cmd: u8) -> Result<(), Ps2Error> {
-    let mut retries: u32 = 0;
-    let result = loop {
-        if retries >= 3 {
-            break Err(Ps2Error::RetriesExceeded);
-        }
-        retries += 1;
-
+    for _ in 0..io::COMMAND_RETRIES {
         // If device is in the second port, send context switch command
         if port.port_type == PortType::Port2 {
             io::command(controller::Command::WriteCommandPort2);
         }
-
         io::flush_output();
         io::write_blocking(&io::DATA_PORT, cmd);
-
         let value = io::read_blocking(&io::DATA_PORT);
         match value {
-            Some(io::ACK) | Some(io::ECHO) => break Ok(()),
+            Some(io::ACK) | Some(io::ECHO) => return Ok(()),
             Some(io::RESEND) => continue,
             Some(unknown) => return Err(Ps2Error::UnexpectedResponse(unknown)),
-            None => break Err(Ps2Error::ExpectedResponse),
+            None => return Err(Ps2Error::ExpectedResponse),
         }
-    };
+    }
 
-    result
+    trace!("Exceeded {} retries while sending command {:X}", io::COMMAND_RETRIES, cmd);
+    Err(Ps2Error::RetriesExceeded)
 }
 
 fn command_raw_data(port: &DevicePort, cmd: u8, data: u8) -> Result<(), Ps2Error> {

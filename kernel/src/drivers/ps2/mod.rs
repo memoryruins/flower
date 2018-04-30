@@ -98,6 +98,9 @@ impl<'a> Controller<'a> {
         config.set(ConfigFlags::PORT_INTERRUPT_2, true);
         self.set_config(config);
 
+        // Enable all the available ports for usage
+        PORTS.map_port(|p| p.enable());
+
         // Call the reset on all devices, including ones not considered present
         PORTS.perform_port(|p| p.reset())?;
 
@@ -264,5 +267,14 @@ impl PortHolder {
                 None => None,
             },
         ))
+    }
+
+    fn map_port<'b, F, R>(&self, f: F) -> (Option<R>, Option<R>)
+        where F: Fn(&mut DevicePort) -> R + Clone
+    {
+        (
+            self.0.lock().as_mut().map(f.clone()),
+            self.1.lock().as_mut().map(f.clone())
+        )
     }
 }

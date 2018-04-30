@@ -13,15 +13,18 @@ pub const CONTROLLER_TEST_SUCCESS: u8 = 0x55;
 pub const ECHO: u8 = 0xEE;
 
 /// The amount of iterations to resend a device command before returning an error
-pub const COMMAND_RETRIES: usize = 16;
+pub const COMMAND_RETRIES: usize = 8;
 
 /// The amount of iterations to wait for IO access before terminating and returning a PS/2 error
-pub const IO_ITERATIONS: usize = 1000000;
+pub const IO_ITERATIONS: usize = 100000;
 
 /// Port used to send data to the controller, and for the controller to return responses
 pub static DATA_PORT: SynchronizedPort<u8> = unsafe { SynchronizedPort::new(0x60) };
 /// Port used to check controller status and to send commands to the controller
 pub static CONTROLLER_PORT: SynchronizedPort<u8> = unsafe { SynchronizedPort::new(0x64) };
+
+/// Port used to pause through IO
+pub static IO_WAIT_PORT: SynchronizedPort<u8> = unsafe { SynchronizedPort::new(0x80) };
 
 bitflags! {
     struct StatusFlags: u8 {
@@ -52,6 +55,7 @@ pub fn write(port: &SynchronizedPort<u8>, value: u8) -> Result<(), Ps2Error> {
     // Check if the input status bit is empty
     if can_write() {
         port.write(value);
+        IO_WAIT_PORT.write(0x0);
         Ok(())
     } else {
         Err(Ps2Error::WriteUnavailable)
@@ -63,7 +67,9 @@ pub fn write(port: &SynchronizedPort<u8>, value: u8) -> Result<(), Ps2Error> {
 pub fn write_blocking(port: &SynchronizedPort<u8>, value: u8) {
     // Iterate until maximum iterations reached or write available
     for _ in 0..IO_ITERATIONS {
+        IO_WAIT_PORT.write(0x0);
         if can_write() {
+            trace!("0x{:X} -> port 0x{:X}", value, port.port());
             port.write(value);
             return;
         }
@@ -75,6 +81,7 @@ pub fn write_blocking(port: &SynchronizedPort<u8>, value: u8) {
 /// Note that you may receive `None` even when expecting a response, as the PS/2 controller may
 /// not have had time to respond yet.
 pub fn read(port: &SynchronizedPort<u8>) -> Option<u8> {
+    IO_WAIT_PORT.write(0x0);
     // Check if the output status bit is full
     if can_read() {
         return Some(port.read());
@@ -87,8 +94,11 @@ pub fn read(port: &SynchronizedPort<u8>) -> Option<u8> {
 pub fn read_blocking(port: &SynchronizedPort<u8>) -> Option<u8> {
     // Iterate until maximum iterations reached or response available
     for _ in 0..IO_ITERATIONS {
+        IO_WAIT_PORT.write(0x0);
         if can_read() {
-            return Some(port.read());
+            let value = port.read();
+            trace!("0x{:X} <- port 0x{:X}", value, port.port());
+            return Some(value);
         }
     }
     None
@@ -98,7 +108,9 @@ pub fn read_blocking(port: &SynchronizedPort<u8>) -> Option<u8> {
 pub fn flush_output() {
     // Read until the output status bit is empty
     while can_read() {
-        let _ = DATA_PORT.read();
+        IO_WAIT_PORT.write(0x0);
+        let flushed = DATA_PORT.read();
+        trace!("0x{:X} -> flushed", flushed);
     }
 }
 

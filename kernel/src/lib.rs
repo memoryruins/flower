@@ -33,7 +33,7 @@ mod terminal;
 mod io;
 mod drivers;
 
-use drivers::ps2;
+use drivers::ps2::{self, device::Device};
 //use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
 use terminal::TerminalOutput;
 
@@ -58,10 +58,11 @@ pub extern fn kmain() -> ! {
     let mut controller = ps2::Controller::new();
     match controller.setup() {
         Ok(_) => info!("ps2c: successful setup"),
-        Err(error) => error!("ps2c: threw error: {:?}", error),
+        Err(error) => panic!("ps2c: threw error: {:?}", error),
     }
 
     if let Ok(keyboard) = controller.keyboard() {
+        info!("kbd: detected in {:?}", keyboard.port().lock().as_ref().map(|p| p.port_type));
 //        let mut keyboard = Ps2Keyboard::new(keyboard);
 //
 //        if let Ok(_) = keyboard.enable() {
@@ -80,6 +81,12 @@ pub extern fn kmain() -> ! {
 //        }
     } else {
         warn!("kbd: not available");
+    }
+
+    if let Ok(mouse) = controller.mouse() {
+        info!("mouse: detected in {:?}", mouse.port().lock().as_ref().map(|p| p.port_type));
+    } else {
+        warn!("mouse: not available");
     }
 
     halt()
