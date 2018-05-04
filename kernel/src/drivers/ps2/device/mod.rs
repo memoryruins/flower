@@ -49,6 +49,7 @@ pub enum DeviceType {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum KeyboardType {
+    Unknown,
     TranslatedAtKeyboard,
     Mf2Keyboard,
     Mf2TranslatedKeyboard,
@@ -258,13 +259,13 @@ impl<'a> InternalDevice<'a> {
 
         self.command_device(device::Command::IdentifyDevice)?;
 
-        let mut mf2 = false;
+        let mut keyboard = false;
         let identity_result = loop {
             let response = io::read_blocking(&io::DATA_PORT);
 
             match response {
                 // If the first byte we receive is 0xAB, this is an MF2 device
-                Some(0xAB) if !mf2 => mf2 = true,
+                Some(0xAB) if !keyboard => keyboard = true,
                 // If we get an identity, break with it
                 Some(identity) => break Some(identity),
                 // If nothing is returned, we can assume we're not going to get any response
@@ -274,12 +275,13 @@ impl<'a> InternalDevice<'a> {
 
         let identity = if let Some(identity) = identity_result {
             match identity {
-                0x41 | 0xC1 if mf2 => Keyboard(KeyboardType::Mf2TranslatedKeyboard),
-                0x83 if mf2 => Keyboard(KeyboardType::Mf2Keyboard),
+                0x41 | 0xC1 if keyboard => Keyboard(KeyboardType::Mf2TranslatedKeyboard),
+                0x83 if keyboard => Keyboard(KeyboardType::Mf2Keyboard),
+                _ if keyboard => Keyboard(KeyboardType::Unknown),
 
-                0x00 if !mf2 => Mouse(MouseType::Mouse),
-                0x03 if !mf2 => Mouse(MouseType::MouseWithScrollWheel),
-                0x04 if !mf2 => Mouse(MouseType::FiveButtonMouse),
+                0x00 if !keyboard => Mouse(MouseType::Mouse),
+                0x03 if !keyboard => Mouse(MouseType::MouseWithScrollWheel),
+                0x04 if !keyboard => Mouse(MouseType::FiveButtonMouse),
                 _ => Unknown,
             }
         } else {
