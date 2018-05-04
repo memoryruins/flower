@@ -7,15 +7,21 @@
 #![feature(slice_rotate)]
 #![feature(try_from)]
 #![feature(nll)]
-#![feature(inclusive_range_syntax)]
+#![feature(range_contains)]
 #![feature(type_ascription)]
-#![feature(ptr_internals)]
+#![feature(ptr_internals, align_offset)]
+
+#[cfg(test)]
+#[cfg_attr(test, macro_use)]
+extern crate std;
 
 extern crate rlibc;
 extern crate volatile;
 extern crate spin;
 extern crate x86_64;
 extern crate array_init; // Used as a workaround until const-generics arrives
+extern crate multiboot2;
+extern crate bit_field;
 
 #[macro_use]
 extern crate bitflags;
@@ -23,11 +29,15 @@ extern crate bitflags;
 #[macro_use]
 extern crate lazy_static;
 
+use core::mem;
 use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
 use drivers::keyboard::keymap;
 use drivers::ps2;
 use terminal::TerminalOutput;
+use memory::bootstrap_allocator;
+use memory::buddy_allocator::{Tree, BLOCKS_IN_TREE, Block};
 
+#[cfg(not(test))]
 mod lang;
 #[macro_use]
 mod log;
@@ -38,11 +48,47 @@ mod color;
 mod io;
 #[macro_use]
 mod terminal;
+mod memory;
 mod drivers;
 
 /// Kernel main function
 #[no_mangle]
-pub extern fn kmain() -> ! {
+pub extern fn kmain(multiboot_info_addr: usize) -> ! {
+    say_hello();
+
+    // Parse and print mb info
+    let mb_info = unsafe { multiboot2::load(multiboot_info_addr) };
+    let memory_map = mb_info.memory_map_tag()
+        .expect("Expected a multiboot2 memory map tag, but it is not present!");
+    print_memory_info(memory_map);
+
+    // Set up bootstrap allocator
+    let end_address = mb_info.end_address() as *const u8;
+    let end_address = unsafe { end_address.offset(
+        end_address.align_offset(mem::align_of::<[Block; BLOCKS_IN_TREE]>()) as isize
+    )};
+    unsafe { bootstrap_allocator::BOOTSTRAP_ALLOCATOR.init_unchecked(end_address as usize); }
+
+    // Make a tree and allocate a 4kib block
+    let mut tree = Tree::new();
+    for _ in 0..5 {
+        debug!("Address allocated: {:?}", tree.allocate_exact(0).unwrap());
+    }
+
+    // Initialize the PS/2 controller and run the keyboard echo loop
+    let mut controller = ps2::CONTROLLER.lock();
+    match controller.initialize() {
+        Ok(_) => info!("ps2c: init successful"),
+        Err(error) => error!("ps2c: {:?}", error),
+    }
+
+    keyboard_echo_loop(&mut controller);
+
+    halt()
+}
+
+/// Say hello to the user and print flower
+fn say_hello() {
     terminal::STDOUT.write().clear().expect("Screen clear failed");
 
     print_flower().expect("Flower print failed");
@@ -57,13 +103,21 @@ pub extern fn kmain() -> ! {
     // Reset colors
     terminal::STDOUT.write().set_color(color!(White on Black))
         .expect("Color should be supported");
+}
 
-    let mut controller = ps2::CONTROLLER.lock();
-    match controller.initialize() {
-        Ok(_) => info!("ps2c: init successful"),
-        Err(error) => error!("ps2c: {:?}", error),
-    }
+fn print_flower() -> Result<(), terminal::TerminalOutputError<()>> {
+    const FLOWER: &'static str = include_str!("resources/art/flower.txt");
+    const FLOWER_STEM: &'static str = include_str!("resources/art/flower_stem.txt");
 
+    let mut stdout = terminal::STDOUT.write();
+    let old = stdout.cursor_pos();
+
+    stdout.write_string_colored(FLOWER, color!(LightBlue on Black))?;
+    stdout.write_string_colored(FLOWER_STEM, color!(Green on Black))?;
+    stdout.set_cursor_pos(old)
+}
+
+fn keyboard_echo_loop(controller: &mut ps2::Controller) {
     let keyboard_device = controller.device(ps2::DevicePort::Keyboard);
     let mut keyboard = Ps2Keyboard::new(keyboard_device);
     if let Ok(_) = keyboard.enable() {
@@ -83,20 +137,14 @@ pub extern fn kmain() -> ! {
     } else {
         error!("kbd: enable unsuccessful");
     }
-
-    halt()
 }
 
-fn print_flower() -> Result<(), terminal::TerminalOutputError<()>> {
-    const FLOWER: &'static str = include_str!("resources/art/flower.txt");
-    const FLOWER_STEM: &'static str = include_str!("resources/art/flower_stem.txt");
-
-    let mut stdout = terminal::STDOUT.write();
-    let old = stdout.cursor_pos();
-
-    stdout.write_string_colored(FLOWER, color!(LightBlue on Black))?;
-    stdout.write_string_colored(FLOWER_STEM, color!(Green on Black))?;
-    stdout.set_cursor_pos(old)
+fn print_memory_info(memory_map: &multiboot2::MemoryMapTag) {
+    debug!("mem: Usable memory areas: ");
+    for area in memory_map.memory_areas() {
+        debug!(" 0x{:x} to 0x{:x}",
+                 area.start_address(), area.end_address());
+    }
 }
 
 fn halt() -> ! {
