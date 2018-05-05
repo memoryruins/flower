@@ -7,9 +7,11 @@
 #![feature(slice_rotate)]
 #![feature(try_from)]
 #![feature(nll)]
-#![feature(range_contains)]
+#![feature(range_contains, inclusive_range)]
 #![feature(type_ascription)]
 #![feature(ptr_internals, align_offset)]
+#![feature(arbitrary_self_types)]
+#![cfg_attr(test, feature(box_syntax))]
 
 #[cfg(test)]
 #[cfg_attr(test, macro_use)]
@@ -34,8 +36,8 @@ use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
 use drivers::keyboard::keymap;
 use drivers::ps2;
 use terminal::TerminalOutput;
-use memory::bootstrap_allocator;
-use memory::buddy_allocator::{Tree, BLOCKS_IN_TREE, Block};
+use memory::bootstrap_heap;
+use memory::physical_allocator::{PHYSICAL_ALLOCATOR, BLOCKS_IN_TREE, Block};
 
 #[cfg(not(test))]
 mod lang;
@@ -62,17 +64,19 @@ pub extern fn kmain(multiboot_info_addr: usize) -> ! {
         .expect("Expected a multiboot2 memory map tag, but it is not present!");
     print_memory_info(memory_map);
 
-    // Set up bootstrap allocator
+    // Set up bootstrap heap
     let end_address = mb_info.end_address() as *const u8;
     let end_address = unsafe { end_address.offset(
         end_address.align_offset(mem::align_of::<[Block; BLOCKS_IN_TREE]>()) as isize
     )};
-    unsafe { bootstrap_allocator::BOOTSTRAP_ALLOCATOR.init_unchecked(end_address as usize); }
+    let heap_start = end_address;
+    unsafe { bootstrap_heap::BOOTSTRAP_HEAP.init_unchecked(heap_start as usize); }
 
-    // Make a tree and allocate a 4kib block
-    let mut tree = Tree::new();
-    for _ in 0..5 {
-        debug!("Address allocated: {:?}", tree.allocate_exact(0).unwrap());
+    // Set up physical frame allocator
+    PHYSICAL_ALLOCATOR.init(1, &[]); // TODO handle holes & # of GiB properly
+
+    for _ in 0..4 {
+        debug!("Allocated {:?}", PHYSICAL_ALLOCATOR.allocate(0).unwrap());
     }
 
     // Initialize the PS/2 controller and run the keyboard echo loop
