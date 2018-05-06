@@ -100,6 +100,8 @@ impl<'a> Device for Keyboard<'a> {
 impl<'a> Keyboard<'a> {
     pub fn read_scancode(&self) -> Result<Option<Scancode>, Ps2Error> {
         if self.internal.lock().as_ref().ok_or(Ps2Error::DeviceUnavailable)?.can_read() {
+            trace!("kbd: reading scancode");
+
             let mut make = true;
             let mut extended = false;
 
@@ -114,12 +116,13 @@ impl<'a> Keyboard<'a> {
             }?;
 
             // If scancode is present, return it with modifiers
-            return Ok(if scancode != 0 {
+            Ok(if scancode != 0 {
                 Some(Scancode::new(scancode, extended, make))
             } else {
                 None
-            });
+            })
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 }

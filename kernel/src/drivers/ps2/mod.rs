@@ -106,10 +106,11 @@ impl<'a> Controller<'a> {
         }
 
         // Enable interrupts again now that everything is set up
-        let mut config = self.config()?;
+        // TODO: Add back when we move to interrupts
+        /*let mut config = self.config()?;
         config.set(ConfigFlags::PORT_INTERRUPT_1, true);
         config.set(ConfigFlags::PORT_INTERRUPT_2, true);
-        self.set_config(config);
+        self.set_config(config);*/
 
         // Enable all the available ports for usage
         PORTS.map_port(|p| p.enable());

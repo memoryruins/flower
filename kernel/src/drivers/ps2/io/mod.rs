@@ -54,6 +54,7 @@ pub fn command_data(command: controller::DataCommand, data: u8) {
 pub fn write(port: &SynchronizedPort<u8>, value: u8) -> Result<(), Ps2Error> {
     // Check if the input status bit is empty
     if can_write() {
+        trace!("0x{:X} -> port 0x{:X}", value, port.port());
         port.write(value);
         IO_WAIT_PORT.write(0x0);
         Ok(())
@@ -84,9 +85,12 @@ pub fn read(port: &SynchronizedPort<u8>) -> Option<u8> {
     IO_WAIT_PORT.write(0x0);
     // Check if the output status bit is full
     if can_read() {
-        return Some(port.read());
+        let value = port.read();
+        trace!("0x{:X} <- port 0x{:X}", value, port.port());
+        Some(value)
+    } else {
+        None
     }
-    None
 }
 
 /// Reads from the given port, or blocks until a response has been sent back. Returns `None` if

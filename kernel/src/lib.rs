@@ -60,8 +60,12 @@ pub extern fn kmain() -> ! {
         Err(error) => panic!("ps2c: threw error: {:?}", error),
     }
 
-    if check_keyboard() {
+    let has_keyboard = check_keyboard();
+    let has_mouse = check_mouse();
+
+    if has_keyboard {
         let mut keyboard = Ps2Keyboard::new();
+        trace!("kbd: ps/2 keyboard created");
         loop {
             if let Ok(Some(event)) = keyboard.read_event() {
                 if event.event_type != KeyEventType::Break {
@@ -73,12 +77,6 @@ pub extern fn kmain() -> ! {
         }
     }
 
-    if let Ok(mouse) = ps2::CONTROLLER.lock().mouse() {
-        info!("mouse: detected in {:?}", mouse.port().lock().as_ref().unwrap().port_type);
-    } else {
-        warn!("mouse: not available");
-    }
-
     halt()
 }
 
@@ -88,6 +86,16 @@ fn check_keyboard() -> bool {
         true
     } else {
         warn!("kbd: not available");
+        false
+    }
+}
+
+fn check_mouse() -> bool {
+    if let Ok(mouse) = ps2::CONTROLLER.lock().mouse() {
+        info!("mouse: detected in {:?}", mouse.port().lock().as_ref().unwrap().port_type);
+        true
+    } else {
+        warn!("mouse: not available");
         false
     }
 }
