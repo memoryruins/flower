@@ -107,9 +107,9 @@ impl<'a> Keyboard<'a> {
 
             // Get all scancode modifiers, and return when the actual scancode is received
             let scancode = loop {
-                match ps2::io::read(&ps2::io::DATA_PORT) {
-                    Some(0xE0...0xE1) if !extended => extended = true,
-                    Some(0xF0) if make => make = false,
+                match ps2::io::read_blocking(&ps2::io::DATA_PORT) {
+                    Some(0xE0...0xE1) => extended = true,
+                    Some(0xF0) => make = false,
                     Some(data) => break Ok(data),
                     None => break Err(Ps2Error::ExpectedResponse),
                 }
