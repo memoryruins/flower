@@ -2,10 +2,10 @@ use super::Keycode;
 
 macro_rules! codes {
     {$($name:ident = $row:expr, $col:expr;)*} => {
+        use super::Keycode;
+
         $(
-            pub const $name: ::drivers::keyboard::Keycode = ::drivers::keyboard::Keycode {
-                inner: ($col & 0x1F) | ($row & 0x7) << 5
-            };
+            pub const $name: Keycode = ($col & 0x1F) | ($row & 0x7) << 5;
         )*
     }
 }

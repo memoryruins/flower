@@ -1,11 +1,12 @@
 use core::{convert::From, option};
-use self::device::{DevicePort, InternalDevice, Keyboard, Mouse, PortType};
+use self::device::{DevicePort, InternalDevice, keyboard::Keyboard, mouse::Mouse, PortType};
 use self::io::command;
 use spin::Mutex;
 
 pub mod io;
 pub mod device;
 
+pub static CONTROLLER: Mutex<Controller> = Mutex::new(Controller::new());
 pub static PORTS: PortHolder = PortHolder::new();
 
 /// Represents an error returned by PS/2
@@ -55,13 +56,25 @@ bitflags! {
 // TODO: We need to properly mark ports as dirty at intervals or when unexpected data is received (or not)
 pub struct Controller<'a> {
     devices: (Option<InternalDevice<'a>>, Option<InternalDevice<'a>>),
+    keyboard_change_listener: Option<fn(Keyboard) -> Result<(), Ps2Error>>,
+    mouse_change_listener: Option<fn(Mouse) -> Result<(), Ps2Error>>,
 }
 
 impl<'a> Controller<'a> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Controller {
             devices: (None, None),
+            keyboard_change_listener: None,
+            mouse_change_listener: None,
         }
+    }
+
+    pub fn set_keyboard_change_listener(&mut self, listener: fn(Keyboard) -> Result<(), Ps2Error>) {
+        self.keyboard_change_listener = Some(listener);
+    }
+
+    pub fn set_mouse_change_listener(&mut self, listener: fn(Mouse) -> Result<(), Ps2Error>) {
+        self.mouse_change_listener = Some(listener);
     }
 
     pub fn setup(&mut self) -> Result<(), Ps2Error> {
@@ -202,11 +215,15 @@ impl<'a> Controller<'a> {
 
     fn refresh_state(&mut self) -> Result<(), Ps2Error> {
         if refresh_port(&PORTS.0, &mut self.devices.0)? {
-            self.devices.0.as_mut().map(|d| d.init());
+            if let Some(ref mut device) = self.devices.0.as_mut() {
+                init_device(self.keyboard_change_listener, self.mouse_change_listener, device)?;
+            }
         }
 
         if refresh_port(&PORTS.1, &mut self.devices.1)? {
-            self.devices.1.as_mut().map(|d| d.init());
+            if let Some(ref mut device) = self.devices.1.as_mut() {
+                init_device(self.keyboard_change_listener, self.mouse_change_listener, device)?;
+            }
         }
 
         Ok(())
@@ -220,6 +237,28 @@ impl<'a> Controller<'a> {
             self.devices.1.as_ref().and_then(f.clone()),
         )
     }
+}
+
+fn init_device(
+    kbd_listener: Option<fn(Keyboard) -> Result<(), Ps2Error>>,
+    mouse_listener: Option<fn(Mouse) -> Result<(), Ps2Error>>,
+    device: &mut InternalDevice,
+) -> Result<(), Ps2Error> {
+    device.init();
+
+    if let Some(keyboard) = device.as_keyboard() {
+        if let Some(listener) = kbd_listener {
+            listener(keyboard)?;
+        }
+    }
+
+    if let Some(mouse) = device.as_mouse() {
+        if let Some(listener) = mouse_listener {
+            listener(mouse)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn refresh_port<'a>(port_mutex: &'static Mutex<Option<DevicePort>>, device: &mut Option<InternalDevice<'a>>) -> Result<bool, Ps2Error> {

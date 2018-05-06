@@ -21,6 +21,10 @@ extern crate spin;
 extern crate volatile;
 extern crate x86_64;
 
+use drivers::ps2::{self, device::Device};
+use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
+use terminal::TerminalOutput;
+
 mod lang;
 #[macro_use]
 mod log;
@@ -32,10 +36,6 @@ mod color;
 mod terminal;
 mod io;
 mod drivers;
-
-use drivers::ps2::{self, device::Device};
-//use drivers::keyboard::{Keyboard, KeyEventType, Ps2Keyboard};
-use terminal::TerminalOutput;
 
 /// Kernel main function
 #[no_mangle]
@@ -55,41 +55,41 @@ pub extern fn kmain() -> ! {
     terminal::STDOUT.write().set_color(color!(White on Black))
         .expect("Color should be supported");
 
-    let mut controller = ps2::Controller::new();
-    match controller.setup() {
+    match ps2::CONTROLLER.lock().setup() {
         Ok(_) => info!("ps2c: successful setup"),
         Err(error) => panic!("ps2c: threw error: {:?}", error),
     }
 
-    if let Ok(keyboard) = controller.keyboard() {
-        info!("kbd: detected in {:?}", keyboard.port().lock().as_ref().map(|p| p.port_type));
-//        let mut keyboard = Ps2Keyboard::new(keyboard);
-//
-//        if let Ok(_) = keyboard.enable() {
-//            println!("kbd: successfully enabled");
-//            loop {
-//                if let Ok(Some(event)) = keyboard.read_event() {
-//                    if event.event_type != KeyEventType::Break {
-//                        if let Some(char) = event.char {
-//                            print!("{}", char);
-//                        }
-//                    }
-//                }
-//            }
-//        } else {
-//            println!("kbd: enable unsuccessful");
-//        }
-    } else {
-        warn!("kbd: not available");
+    if check_keyboard() {
+        let mut keyboard = Ps2Keyboard::new();
+        loop {
+            if let Ok(Some(event)) = keyboard.read_event() {
+                if event.event_type != KeyEventType::Break {
+                    if let Some(char) = event.char {
+                        print!("{}", char);
+                    }
+                }
+            }
+        }
     }
 
-    if let Ok(mouse) = controller.mouse() {
+    if let Ok(mouse) = ps2::CONTROLLER.lock().mouse() {
         info!("mouse: detected in {:?}", mouse.port().lock().as_ref().map(|p| p.port_type));
     } else {
         warn!("mouse: not available");
     }
 
     halt()
+}
+
+fn check_keyboard() -> bool {
+    if let Ok(keyboard) = ps2::CONTROLLER.lock().keyboard() {
+        info!("kbd: detected in {:?}", keyboard.port().lock().as_ref().map(|p| p.port_type));
+        true
+    } else {
+        warn!("kbd: not available");
+        false
+    }
 }
 
 fn print_flower() -> Result<(), terminal::TerminalOutputError<()>> {

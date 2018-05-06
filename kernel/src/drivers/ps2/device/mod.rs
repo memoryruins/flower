@@ -2,6 +2,9 @@ use spin::Mutex;
 use super::io::{self, command::*};
 use super::Ps2Error;
 
+pub mod keyboard;
+pub mod mouse;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PortType {
     Port1,
@@ -151,58 +154,6 @@ pub trait Device {
         }
     }
 
-    fn command_keyboard(&self, cmd: device::keyboard::Command) -> Result<(), Ps2Error> {
-        if self.is_enabled() {
-            if self.is_keyboard() {
-                let port = self.port().lock();
-                command_raw(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8)
-            } else {
-                Err(Ps2Error::WrongDeviceType)
-            }
-        } else {
-            Err(Ps2Error::DeviceDisabled)
-        }
-    }
-
-    fn command_mouse(&self, cmd: device::mouse::Command) -> Result<(), Ps2Error> {
-        if self.is_enabled() {
-            if self.is_mouse() {
-                let port = self.port().lock();
-                command_raw(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8)
-            } else {
-                Err(Ps2Error::WrongDeviceType)
-            }
-        } else {
-            Err(Ps2Error::DeviceDisabled)
-        }
-    }
-
-    fn command_keyboard_data(&self, cmd: device::keyboard::DataCommand, data: u8) -> Result<(), Ps2Error> {
-        if self.is_enabled() {
-            if self.is_keyboard() {
-                let port = self.port().lock();
-                command_raw_data(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8, data)
-            } else {
-                Err(Ps2Error::WrongDeviceType)
-            }
-        } else {
-            Err(Ps2Error::DeviceDisabled)
-        }
-    }
-
-    fn command_mouse_data(&self, cmd: device::mouse::DataCommand, data: u8) -> Result<(), Ps2Error> {
-        if self.is_enabled() {
-            if self.is_mouse() {
-                let port = self.port().lock();
-                command_raw_data(port.as_ref().ok_or(Ps2Error::DeviceUnavailable)?, cmd as u8, data)
-            } else {
-                Err(Ps2Error::WrongDeviceType)
-            }
-        } else {
-            Err(Ps2Error::DeviceDisabled)
-        }
-    }
-
     fn is_enabled(&self) -> bool {
         if let Some(port) = self.port().lock().as_ref() {
             port.is_enabled()
@@ -238,17 +189,17 @@ impl<'a> InternalDevice<'a> {
         }
     }
 
-    pub fn as_keyboard(&self) -> Option<Keyboard<'a>> {
+    pub fn as_keyboard(&self) -> Option<keyboard::Keyboard<'a>> {
         if self.is_keyboard() {
-            Some(Keyboard::new(self.port))
+            Some(keyboard::Keyboard::new(self.port))
         } else {
             None
         }
     }
 
-    pub fn as_mouse(&self) -> Option<Mouse<'a>> {
+    pub fn as_mouse(&self) -> Option<mouse::Mouse<'a>> {
         if self.is_mouse() {
-            Some(Mouse::new(self.port))
+            Some(mouse::Mouse::new(self.port))
         } else {
             None
         }
@@ -311,45 +262,7 @@ impl<'a> Device for InternalDevice<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct Keyboard<'a> {
-    internal: &'a Mutex<Option<DevicePort>>,
-}
-
-impl<'a> Keyboard<'a> {
-    const fn new(internal: &'a Mutex<Option<DevicePort>>) -> Self {
-        Keyboard { internal }
-    }
-}
-
-impl<'a> Device for Keyboard<'a> {
-    fn port(&self) -> &Mutex<Option<DevicePort>> { self.internal }
-
-    fn is_mouse(&self) -> bool { false }
-
-    fn is_keyboard(&self) -> bool { true }
-}
-
-#[derive(Debug)]
-pub struct Mouse<'a> {
-    internal: &'a Mutex<Option<DevicePort>>,
-}
-
-impl<'a> Mouse<'a> {
-    const fn new(internal: &'a Mutex<Option<DevicePort>>) -> Self {
-        Mouse { internal }
-    }
-}
-
-impl<'a> Device for Mouse<'a> {
-    fn port(&self) -> &Mutex<Option<DevicePort>> { self.internal }
-
-    fn is_mouse(&self) -> bool { true }
-
-    fn is_keyboard(&self) -> bool { false }
-}
-
-fn command_raw(port: &DevicePort, cmd: u8) -> Result<(), Ps2Error> {
+pub(crate) fn command_raw(port: &DevicePort, cmd: u8) -> Result<(), Ps2Error> {
     for _ in 0..io::COMMAND_RETRIES {
         // If device is in the second port, send context switch command
         if port.port_type == PortType::Port2 {
@@ -370,7 +283,7 @@ fn command_raw(port: &DevicePort, cmd: u8) -> Result<(), Ps2Error> {
     Err(Ps2Error::RetriesExceeded)
 }
 
-fn command_raw_data(port: &DevicePort, cmd: u8, data: u8) -> Result<(), Ps2Error> {
+pub(crate) fn command_raw_data(port: &DevicePort, cmd: u8, data: u8) -> Result<(), Ps2Error> {
     match command_raw(port, cmd) {
         Ok(_) => {
             io::write_blocking(&io::DATA_PORT, data);
