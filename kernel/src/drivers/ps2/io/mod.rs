@@ -33,7 +33,7 @@ bitflags! {
         /// If the input buffer to the controller is full (data cannot be written)
         const INPUT_FULL = 1 << 1;
         /// If the current output from the controller is from the second port
-        const MOUSE_OUTPUT_FULL = 1 << 5;
+        const PORT_2_FULL = 1 << 5;
     }
 }
 
@@ -129,12 +129,12 @@ pub fn can_read() -> bool {
     read_status().contains(StatusFlags::OUTPUT_FULL)
 }
 
-/// Returns true if output port bit is 0, meaning the next data will be read from the keyboard
-pub fn can_read_keyboard() -> bool {
-    !read_status().contains(StatusFlags::MOUSE_OUTPUT_FULL)
+/// Returns true if output port bit is 0, meaning the next data will be read from port 1
+pub fn can_read_port_1() -> bool {
+    !read_status().contains(StatusFlags::PORT_2_FULL)
 }
 
-/// Returns true if output port bit is 1, meaning the next data will be read from the mouse
-pub fn can_read_mouse() -> bool {
-    read_status().contains(StatusFlags::MOUSE_OUTPUT_FULL)
+/// Returns true if output port bit is 1, meaning the next data will be read from port 2
+pub fn can_read_port_2() -> bool {
+    read_status().contains(StatusFlags::PORT_2_FULL)
 }

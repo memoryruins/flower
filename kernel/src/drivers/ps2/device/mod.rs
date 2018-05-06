@@ -1,3 +1,4 @@
+use core::fmt;
 use spin::Mutex;
 use super::io::{self, command::*};
 use super::Ps2Error;
@@ -5,10 +6,19 @@ use super::Ps2Error;
 pub mod keyboard;
 pub mod mouse;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum PortType {
     Port1,
     Port2,
+}
+
+impl fmt::Debug for PortType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PortType::Port1 => write!(f, "port 1"),
+            PortType::Port2 => write!(f, "port 2"),
+        }
+    }
 }
 
 impl PortType {
@@ -136,6 +146,13 @@ impl DevicePort {
     pub fn is_enabled(&self) -> bool { self.enabled }
 
     pub fn is_dirty(&self) -> bool { self.dirty }
+
+    pub fn can_read(&self) -> bool {
+        io::can_read() && match self.port_type {
+            PortType::Port1 => io::can_read_port_1(),
+            PortType::Port2 => io::can_read_port_2(),
+        }
+    }
 }
 
 pub trait Device {
@@ -160,6 +177,10 @@ pub trait Device {
         } else {
             false
         }
+    }
+
+    fn set_port_dirty(&mut self, dirty: bool) {
+        self.port().lock().as_mut().map(|p| p.set_dirty(dirty));
     }
 }
 

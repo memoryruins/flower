@@ -74,7 +74,7 @@ pub extern fn kmain() -> ! {
     }
 
     if let Ok(mouse) = ps2::CONTROLLER.lock().mouse() {
-        info!("mouse: detected in {:?}", mouse.port().lock().as_ref().map(|p| p.port_type));
+        info!("mouse: detected in {:?}", mouse.port().lock().as_ref().unwrap().port_type);
     } else {
         warn!("mouse: not available");
     }
@@ -84,7 +84,7 @@ pub extern fn kmain() -> ! {
 
 fn check_keyboard() -> bool {
     if let Ok(keyboard) = ps2::CONTROLLER.lock().keyboard() {
-        info!("kbd: detected in {:?}", keyboard.port().lock().as_ref().map(|p| p.port_type));
+        info!("kbd: detected in {:?}", keyboard.port().lock().as_ref().unwrap().port_type);
         true
     } else {
         warn!("kbd: not available");

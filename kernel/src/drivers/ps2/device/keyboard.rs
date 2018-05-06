@@ -5,10 +5,22 @@ use spin::Mutex;
 /// Represents a PS/2 scanset
 #[allow(dead_code)] // Dead variants for completeness
 #[repr(u8)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Scanset {
     One = 1,
     Two = 2,
     Three = 3,
+}
+
+bitflags! {
+    pub struct LedFlags: u8 {
+        /// If scroll lock is active
+        const SCROLL_LOCK = 1 << 0;
+        /// If number lock is active
+        const NUMBER_LOCK = 1 << 1;
+        /// If caps lock is active
+        const CAPS_LOCK = 1 << 2;
+    }
 }
 
 /// Represents a PS/2 scancode received from the device
@@ -54,6 +66,10 @@ impl<'a> Keyboard<'a> {
         }
     }
 
+    pub fn set_leds(&self, leds: LedFlags) -> Result<(), Ps2Error> {
+        self.command_keyboard_data(DataCommand::SetLeds, leds.bits())
+    }
+
     fn command_keyboard(&self, cmd: Command) -> Result<(), Ps2Error> {
         if self.is_enabled() {
             let port = self.port().lock();
@@ -83,7 +99,7 @@ impl<'a> Device for Keyboard<'a> {
 
 impl<'a> Keyboard<'a> {
     pub fn read_scancode(&self) -> Result<Option<Scancode>, Ps2Error> {
-        if ps2::io::can_read() && ps2::io::can_read_keyboard() {
+        if self.internal.lock().as_ref().ok_or(Ps2Error::DeviceUnavailable)?.can_read() {
             let mut make = true;
             let mut extended = false;
 

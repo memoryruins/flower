@@ -22,7 +22,7 @@
 // TODO: Redo all examples
 
 use core::convert::{TryFrom, TryInto};
-use drivers::ps2::{self, Ps2Error};
+use drivers::ps2::{self, device::Device, Ps2Error};
 
 pub mod keymap;
 
@@ -78,6 +78,7 @@ pub enum KeyEventType {
     Repeat,
 }
 
+// TODO: Support caps lock, number lock and scroll lock! (check keyboard-enhancement branch)
 /// Interface to a generic keyboard.
 pub trait Keyboard {
     type Error;
@@ -169,10 +170,10 @@ impl Ps2Keyboard {
                 false => KeyEventType::Break,
             };
 
-            return Some(KeyEvent { keycode, char, event_type, modifiers });
+            Some(KeyEvent { keycode, char, event_type, modifiers })
+        } else {
+            None
         }
-
-        None
     }
 }
 
@@ -180,10 +181,14 @@ impl Keyboard for Ps2Keyboard {
     type Error = Ps2Error;
 
     fn read_event(&mut self) -> Result<Option<KeyEvent>, Ps2Error> {
-        Ok(ps2::CONTROLLER.lock().keyboard()?.read_scancode()?.map(|scancode| {
+        let mut keyboard = ps2::CONTROLLER.lock().keyboard()?;
+        Ok(keyboard.read_scancode()?.map(|scancode| {
             let event = self.create_event(&scancode);
             if let Some(event) = event {
                 self.key_states[event.keycode as usize] = scancode.make;
+            } else {
+                // If we received a scancode but it was invalid, the device probably changed.
+                keyboard.set_port_dirty(true);
             }
             event
         }).unwrap_or(None))

@@ -51,28 +51,28 @@ pub mod device {
         #[repr(u8)]
         pub enum Command {
             /// Scan set 3 only
-            SetAllKeysToRepeatingOnly = 0xF7, // TODO: Call
+            SendRepeatEvents = 0xF7, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToMakeReleaseOnly = 0xF8, // TODO: Call
+            SendMakeReleaseEvents = 0xF8, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToMakeOnly = 0xF9, // TODO: Call
+            SendMakeEvents = 0xF9, // TODO: Call
             /// Scan set 3 only
-            SetAllKeysToRepeatingMakeRelease = 0xFA, // TODO: Call
+            SendAllEvents = 0xFA, // TODO: Call
         }
 
         /// Represents a PS/2 keyboard command where additional data can be sent
         #[derive(Copy, Clone, Debug)]
         #[repr(u8)]
         pub enum DataCommand {
-            SetLeds = 0xED, // TODO: Call
+            SetLeds = 0xED,
             SetTypematicOptions = 0xF3,  // TODO: Call
             /// Scan set 3 only
-            SetKeyRepeatingOnly = 0xFB, // TODO: Call
+            KeySendRepeatEvents = 0xFB, // TODO: Call
             /// Scan set 3 only
-            SetKeyMakeReleaseOnly = 0xFC, // TODO: Call
+            KeySendMakeReleaseEvents = 0xFC, // TODO: Call
             /// Scan set 3 only
-            SetKeyMakeOnly = 0xFD, // TODO: Call
-            SetGetScancode = 0xF0, // TODO: Call and document weirdness
+            KeySendMakeEvents = 0xFD, // TODO: Call
+            SetGetScancode = 0xF0,
         }
     }
 
