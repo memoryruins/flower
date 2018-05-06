@@ -108,6 +108,7 @@ impl<T: InOut> Port<T> {
 /// An `InOut` sized port that is synchronized using a spinlock. See [Port]
 pub struct SynchronizedPort<T: InOut> {
     inner: Mutex<Port<T>>,
+    port: u16,
 }
 
 impl<'a, T: InOut> SynchronizedPort<T> {
@@ -115,6 +116,7 @@ impl<'a, T: InOut> SynchronizedPort<T> {
     pub const unsafe fn new(port: u16) -> SynchronizedPort<T> {
         SynchronizedPort {
             inner: Mutex::new(Port::new(port)),
+            port,
         }
     }
 
@@ -139,4 +141,7 @@ impl<'a, T: InOut> SynchronizedPort<T> {
     pub fn lock(&'a self) -> MutexGuard<'a, Port<T>> {
         self.inner.lock()
     }
+
+    /// Gets the id for this port
+    pub fn port(&self) -> u16 { self.port }
 }
