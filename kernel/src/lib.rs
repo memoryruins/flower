@@ -10,6 +10,7 @@
 #![feature(try_trait)]
 #![feature(type_ascription)]
 #![feature(ptr_internals)]
+#![feature(abi_x86_interrupt)]
 
 extern crate array_init;
 #[macro_use]
@@ -32,6 +33,8 @@ mod log;
 mod util;
 #[macro_use]
 mod color;
+mod interrupts;
+
 #[macro_use]
 mod terminal;
 mod io;
@@ -40,6 +43,8 @@ mod drivers;
 /// Kernel main function
 #[no_mangle]
 pub extern fn kmain() -> ! {
+    interrupts::init();
+
     terminal::STDOUT.write().clear().expect("Screen clear failed");
 
     print_flower().expect("Flower print failed");

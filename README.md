@@ -26,7 +26,7 @@ Much thanks to:
  - [IntermezzOS](https://intermezzos.github.io) and its guide;
  - [Steve Klabnik](https://http://www.steveklabnik.com/) (its creator);
  - [Phil Opp](https://phil-opp.com) and his [blog OS](https://os.phil-opp.com);
- - [Redox](https://github.com/redox-os)
+ - [Redox](https://github.com/redox-os);
  - the people over on the [Rust discord](https://discord.me/rust-lang), such as:
    - toor,
    - rep nop,
@@ -35,4 +35,5 @@ Much thanks to:
    - tanriol,
    - and vorner;
  - the [OsDev wiki](http://wiki.osdev.org)
+ - [Bare Metal Rust](http://www.randomhacks.net/bare-metal-rust/);
  - [Wikipedia](https://wikipedia.org) (of course!)
