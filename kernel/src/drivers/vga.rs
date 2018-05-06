@@ -82,6 +82,8 @@ impl TerminalOutput<()> for VgaWriter {
     fn write_colored(&mut self, character: char, color: ColorPair) -> Result<(), TerminalOutputError<()>> {
         match character {
             '\n' => self.new_line(),
+            '\x08' => self.backspace(),
+            '\t' => self.write_string_colored("    ", color),
             _ => {
                 let mut pos = self.cursor_pos();
                 self.set_char(TerminalCharacter::new(character, color), pos)?;
