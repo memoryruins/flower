@@ -1,143 +1,126 @@
-use super::Keycode;
+use drivers::keyboard::Keycode;
 
-macro_rules! codes {
-    {$($name:ident = $row:expr, $col:expr;)*} => {
-        use super::Keycode;
-
-        $(
-            pub const $name: Keycode = ($col & 0x1F) | ($row & 0x7) << 5;
-        )*
-    }
-}
+use drivers::keyboard::Keycode;
 
 #[allow(dead_code)] // Dead keys for completeness
 pub mod codes {
     //! # Codes
     //!
-    //! This module contains a list of US QWERTY key code constants, based around rows/columns on a keyboard.
-    //! This is used because, for example, in a game using WASD, you're looking for the characters in that position, not those characters specifically.
-    //! All non-character codes can represent the same key on any keyboard layout.
-    
-    codes! {
-        ESCAPE = 0, 0;
+    //! This module contains a list of US QWERTY key code constants.
 
-        F1 = 0, 1;
-        F2 = 0, 2;
-        F3 = 0, 3;
-        F4 = 0, 4;
-        F5 = 0, 5;
-        F6 = 0, 6;
-        F7 = 0, 7;
-        F8 = 0, 8;
-        F9 = 0, 0;
-        F10 = 0, 10;
-        F11 = 0, 11;
-        F12 = 0, 12;
+    use drivers::keyboard::Keycode;
 
-        PRINT_SCREEN = 0, 13;
-        SCROLL_LOCK = 0, 14;
-        PAUSE = 0, 15;
+    pub const F1: Keycode = 0x00;
+    pub const F2: Keycode = 0x01;
+    pub const F3: Keycode = 0x02;
+    pub const F4: Keycode = 0x03;
+    pub const F5: Keycode = 0x04;
+    pub const F6: Keycode = 0x05;
+    pub const F7: Keycode = 0x06;
+    pub const F8: Keycode = 0x07;
+    pub const F9: Keycode = 0x08;
+    pub const F10: Keycode = 0x09;
+    pub const F11: Keycode = 0x0A;
+    pub const F12: Keycode = 0x0B;
 
-        BACK_TICK = 1, 0;
-        KEY_1 = 1, 1;
-        KEY_2 = 1, 2;
-        KEY_3 = 1, 3;
-        KEY_4 = 1, 4;
-        KEY_5 = 1, 5;
-        KEY_6 = 1, 6;
-        KEY_7 = 1, 7;
-        KEY_8 = 1, 8;
-        KEY_9 = 1, 9;
-        KEY_0 = 1, 10;
-        MINUS = 1, 11;
-        EQUALS = 1, 12;
-        BACKSPACE = 1, 13;
+    pub const KEY_1: Keycode = 0x0C;
+    pub const KEY_2: Keycode = 0x0D;
+    pub const KEY_3: Keycode = 0x0E;
+    pub const KEY_4: Keycode = 0x0F;
+    pub const KEY_5: Keycode = 0x10;
+    pub const KEY_6: Keycode = 0x11;
+    pub const KEY_7: Keycode = 0x12;
+    pub const KEY_8: Keycode = 0x13;
+    pub const KEY_9: Keycode = 0x14;
+    pub const KEY_0: Keycode = 0x15;
 
-        INSERT = 1, 14;
-        HOME = 1, 15;
-        PAGE_UP = 1, 16;
+    pub const Q: Keycode = 0x16;
+    pub const W: Keycode = 0x17;
+    pub const E: Keycode = 0x18;
+    pub const R: Keycode = 0x19;
+    pub const T: Keycode = 0x1A;
+    pub const Y: Keycode = 0x1B;
+    pub const U: Keycode = 0x1C;
+    pub const I: Keycode = 0x1D;
+    pub const O: Keycode = 0x1E;
+    pub const P: Keycode = 0x1F;
+    pub const A: Keycode = 0x20;
+    pub const S: Keycode = 0x21;
+    pub const D: Keycode = 0x22;
+    pub const F: Keycode = 0x23;
+    pub const G: Keycode = 0x24;
+    pub const H: Keycode = 0x25;
+    pub const J: Keycode = 0x26;
+    pub const K: Keycode = 0x27;
+    pub const L: Keycode = 0x28;
+    pub const Z: Keycode = 0x29;
+    pub const X: Keycode = 0x2A;
+    pub const C: Keycode = 0x2B;
+    pub const V: Keycode = 0x2C;
+    pub const B: Keycode = 0x2D;
+    pub const N: Keycode = 0x2E;
+    pub const M: Keycode = 0x2F;
 
-        NUM_LOCK = 1, 17;
-        NUM_PAD_FORWARD_SLASH = 1, 18;
-        NUM_PAD_ASTERISK = 1, 19;
-        NUM_PAD_MINUS = 1, 20;
+    pub const SPACE: Keycode = 0x30;
+    pub const EQUALS: Keycode = 0x31;
+    pub const MINUS: Keycode = 0x32;
+    pub const COMMA: Keycode = 0x33;
+    pub const PERIOD: Keycode = 0x34;
+    pub const SEMI_COLON: Keycode = 0x35;
+    pub const SINGLE_QUOTE: Keycode = 0x36;
+    pub const BACK_TICK: Keycode = 0x37;
+    pub const SQUARE_BRACKET_OPEN: Keycode = 0x38;
+    pub const SQUARE_BRACKET_CLOSE: Keycode = 0x39;
+    pub const FORWARD_SLASH: Keycode = 0x3A;
+    pub const BACK_SLASH: Keycode = 0x3B;
+    pub const ESCAPE: Keycode = 0x3C;
+    pub const ENTER: Keycode = 0x3D;
+    pub const BACKSPACE: Keycode = 0x3E;
+    pub const TAB: Keycode = 0x3F;
 
-        TAB = 2, 0;
-        Q = 2, 1;
-        W = 2, 2;
-        E = 2, 3;
-        R = 2, 4;
-        T = 2, 5;
-        Y = 2, 6;
-        U = 2, 7;
-        I = 2, 8;
-        O = 2, 9;
-        P = 2, 10;
-        SQUARE_BRACKET_OPEN = 2, 11;
-        SQUARE_BRACKET_CLOSE = 2, 12;
-        BACK_SLASH = 2, 13;
+    pub const PRINT_SCREEN: Keycode = 0x40;
+    pub const PAUSE: Keycode = 0x41;
+    pub const INSERT: Keycode = 0x42;
+    pub const DELETE: Keycode = 0x43;
+    pub const HOME: Keycode = 0x44;
+    pub const PAGE_UP: Keycode = 0x45;
+    pub const PAGE_DOWN: Keycode = 0x46;
+    pub const END: Keycode = 0x47;
 
-        DELETE = 2, 14;
-        END = 2, 15;
-        PAGE_DOWN = 2, 16;
+    pub const FUNCTION: Keycode = 0x48;
+    pub const LEFT_CONTROL: Keycode = 0x49;
+    pub const RIGHT_CONTROL: Keycode = 0x4A;
+    pub const LEFT_SHIFT: Keycode = 0x4B;
+    pub const RIGHT_SHIFT: Keycode = 0x4C;
+    pub const LEFT_WIN: Keycode = 0x4D;
+    pub const RIGHT_WIN: Keycode = 0x4E;
+    pub const LEFT_ALT: Keycode = 0x4F;
+    pub const RIGHT_ALT: Keycode = 0x50;
 
-        NUM_PAD_7 = 2, 17;
-        NUM_PAD_8 = 2, 18;
-        NUM_PAD_9 = 2, 19;
+    pub const SCROLL_LOCK: Keycode = 0x51;
+    pub const NUM_LOCK: Keycode = 0x52;
+    pub const CAPS_LOCK: Keycode = 0x53;
+    pub const UP_ARROW: Keycode = 0x54;
+    pub const LEFT_ARROW: Keycode = 0x55;
+    pub const DOWN_ARROW: Keycode = 0x56;
+    pub const RIGHT_ARROW: Keycode = 0x57;
 
-        CAPS_LOCK = 3, 0;
-        A = 3, 1;
-        S = 3, 2;
-        D = 3, 3;
-        F = 3, 4;
-        G = 3, 5;
-        H = 3, 6;
-        J = 3, 7;
-        K = 3, 8;
-        L = 3, 9;
-        SEMI_COLON = 3, 10;
-        SINGLE_QUOTE = 3, 11;
-        ENTER = 3, 12;
-
-        NUM_PAD_4 = 3, 13;
-        NUM_PAD_5 = 3, 14;
-        NUM_PAD_6 = 3, 15;
-        NUM_PAD_PLUS = 3, 16;
-
-        LEFT_SHIFT = 4, 0;
-        Z = 4, 1;
-        X = 4, 2;
-        C = 4, 3;
-        V = 4, 4;
-        B = 4, 5;
-        N = 4, 6;
-        M = 4, 7;
-        COMMA = 4, 8;
-        PERIOD = 4, 9;
-        FORWARD_SLASH = 4, 10;
-        RIGHT_SHIFT = 4, 11;
-
-        UP_ARROW = 4, 12;
-
-        NUM_PAD_1 = 4, 13;
-        NUM_PAD_2 = 4, 14;
-        NUM_PAD_3 = 4, 15;
-
-        LEFT_CONTROL = 5, 0;
-        LEFT_WIN = 5, 1;
-        LEFT_ALT = 5, 2;
-        SPACE = 5, 3;
-        RIGHT_ALT = 5, 4;
-        RIGHT_WIN = 5, 5;
-        FUNCTION = 5, 6;
-        RIGHT_CONTROL = 5, 7;
-        LEFT_ARROW = 5, 8;
-        DOWN_ARROW = 5, 9;
-        RIGHT_ARROW = 5, 10;
-        NUM_PAD_0 = 5, 11;
-        NUM_PAD_DELETE = 5, 12;
-        NUM_PAD_ENTER = 5, 13;
-    }
+    pub const NUM_PAD_0: Keycode = 0x58;
+    pub const NUM_PAD_1: Keycode = 0x59;
+    pub const NUM_PAD_2: Keycode = 0x5A;
+    pub const NUM_PAD_3: Keycode = 0x5B;
+    pub const NUM_PAD_4: Keycode = 0x5C;
+    pub const NUM_PAD_5: Keycode = 0x5D;
+    pub const NUM_PAD_6: Keycode = 0x5E;
+    pub const NUM_PAD_7: Keycode = 0x5F;
+    pub const NUM_PAD_8: Keycode = 0x60;
+    pub const NUM_PAD_9: Keycode = 0x61;
+    pub const NUM_PAD_PLUS: Keycode = 0x62;
+    pub const NUM_PAD_MINUS: Keycode = 0x63;
+    pub const NUM_PAD_ENTER: Keycode = 0x64;
+    pub const NUM_PAD_DELETE: Keycode = 0x65;
+    pub const NUM_PAD_FORWARD_SLASH: Keycode = 0x66;
+    pub const NUM_PAD_ASTERISK: Keycode = 0x67;
 }
 
 /// Gets the US QWERTY character(s) for the given Flower keycode. The first element represents the lower-case, and the second the upper.
