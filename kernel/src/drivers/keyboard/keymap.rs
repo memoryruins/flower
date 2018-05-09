@@ -1,7 +1,5 @@
 use drivers::keyboard::Keycode;
 
-use drivers::keyboard::Keycode;
-
 #[allow(dead_code)] // Dead keys for completeness
 pub mod codes {
     //! # Codes
